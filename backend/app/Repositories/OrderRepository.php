@@ -2,6 +2,8 @@
 
 namespace App\Repositories;
 
+use App\Enums\OrderStatus;
+use App\Enums\UserRole;
 use App\Models\BranchInventory;
 use App\Models\Order;
 use App\Models\UserAddress;
@@ -128,12 +130,109 @@ class OrderRepository extends BaseRepository
     public function markCancelled(Order $order, string $reasonType, string $reason): Order
     {
         $order->fill([
-            'status' => \App\Enums\OrderStatus::Cancelled,
+            'status' => OrderStatus::Cancelled,
             'cancellation_reason_type' => $reasonType,
             'cancellation_reason' => $reason,
             'cancelled_at' => now(),
         ])->save();
 
         return $this->loadDetails($order->refresh());
+    }
+
+    /**
+     * @param array<string, mixed> $filters
+     * @return LengthAwarePaginator<int, Order>
+     */
+    public function paginateForAdmin(
+        UserRole $role,
+        ?int $branchId,
+        array $filters,
+        int $perPage,
+    ): LengthAwarePaginator {
+        return $this->adminScope($this->query(), $role, $branchId)
+            ->when(
+                $role === UserRole::SuperAdmin && isset($filters['branch_id']),
+                fn (Builder $query): Builder => $query->where('branch_id', $filters['branch_id']),
+            )
+            ->when(
+                isset($filters['status']),
+                fn (Builder $query): Builder => $query->where('status', $filters['status']),
+            )
+            ->when(
+                filled($filters['keyword'] ?? null),
+                function (Builder $query) use ($filters): void {
+                    $keyword = trim((string) $filters['keyword']);
+                    $query->where(function (Builder $nested) use ($keyword): void {
+                        $nested->where('order_number', 'like', "%{$keyword}%")
+                            ->orWhereHas('user', function (Builder $userQuery) use ($keyword): void {
+                                $userQuery->where('name', 'like', "%{$keyword}%")
+                                    ->orWhere('email', 'like', "%{$keyword}%");
+                            });
+                    });
+                },
+            )
+            ->with([
+                'user:id,name,email,phone',
+                'branch:id,name,address',
+                'items',
+                'refunds',
+            ])
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->paginate($perPage);
+    }
+
+    public function findForAdmin(
+        int $orderId,
+        UserRole $role,
+        ?int $branchId,
+    ): ?Order {
+        return $this->adminScope($this->query(), $role, $branchId)
+            ->whereKey($orderId)
+            ->with([
+                'user:id,name,email,phone',
+                'branch:id,name,address',
+                'items',
+                'refunds.reviewedBy:id,name',
+            ])
+            ->first();
+    }
+
+    public function lockForAdmin(
+        int $orderId,
+        UserRole $role,
+        ?int $branchId,
+    ): ?Order {
+        return $this->adminScope($this->query(), $role, $branchId)
+            ->whereKey($orderId)
+            ->lockForUpdate()
+            ->first();
+    }
+
+    public function markConfirmed(Order $order): Order
+    {
+        $order->fill(['status' => OrderStatus::Confirmed])->save();
+
+        return $this->findForAdmin($order->id, UserRole::SuperAdmin, null)
+            ?? $order->refresh();
+    }
+
+    /**
+     * Scope internal access at query level to prevent cross-branch disclosure.
+     *
+     * @param Builder<Order> $query
+     * @return Builder<Order>
+     */
+    private function adminScope(Builder $query, UserRole $role, ?int $branchId): Builder
+    {
+        if ($role === UserRole::SuperAdmin) {
+            return $query;
+        }
+
+        if ($role === UserRole::BranchManager && $branchId !== null) {
+            return $query->where('branch_id', $branchId);
+        }
+
+        return $query->whereRaw('1 = 0');
     }
 }

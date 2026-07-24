@@ -6,6 +6,123 @@
         "version": "1.0.0"
     },
     "paths": {
+        "/api/v1/admin/orders": {
+            "get": {
+                "tags": [
+                    "Admin Orders"
+                ],
+                "summary": "Danh sách đơn hàng theo phạm vi chi nhánh",
+                "operationId": "adminListOrders",
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "branch_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "keyword",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Danh sách đơn hàng"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không có quyền"
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/orders/{id}": {
+            "get": {
+                "tags": [
+                    "Admin Orders"
+                ],
+                "summary": "Chi tiết đơn hàng",
+                "operationId": "adminShowOrder",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Chi tiết đơn hàng"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy đơn hàng"
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/orders/{id}/confirm": {
+            "post": {
+                "tags": [
+                    "Admin Orders"
+                ],
+                "summary": "Xác nhận đơn hàng đang chờ",
+                "operationId": "adminConfirmOrder",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Đã xác nhận đơn hàng"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy đơn hàng"
+                    },
+                    "422": {
+                        "description": "Trạng thái không hợp lệ"
+                    }
+                }
+            }
+        },
         "/api/v1/admin/promotions": {
             "get": {
                 "tags": [
@@ -177,6 +294,195 @@
                     },
                     "404": {
                         "description": "Không tìm thấy promotion"
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/refunds": {
+            "get": {
+                "tags": [
+                    "Admin Refunds"
+                ],
+                "summary": "Danh sách yêu cầu hoàn tiền",
+                "operationId": "adminListRefunds",
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "requested",
+                                "approved",
+                                "rejected"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "branch_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "keyword",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Danh sách yêu cầu hoàn tiền"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không có quyền"
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/refunds/{id}": {
+            "get": {
+                "tags": [
+                    "Admin Refunds"
+                ],
+                "summary": "Chi tiết yêu cầu hoàn tiền",
+                "operationId": "adminShowRefund",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Chi tiết yêu cầu hoàn tiền"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy yêu cầu hoàn tiền"
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/refunds/{id}/approve": {
+            "post": {
+                "tags": [
+                    "Admin Refunds"
+                ],
+                "summary": "Duyệt yêu cầu hoàn tiền",
+                "operationId": "adminApproveRefund",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "properties": {
+                                    "approved_amount": {
+                                        "type": "integer",
+                                        "minimum": 1
+                                    },
+                                    "review_note": {
+                                        "type": "string",
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Đã duyệt yêu cầu hoàn tiền"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy yêu cầu hoàn tiền"
+                    },
+                    "422": {
+                        "description": "Yêu cầu đã xử lý hoặc số tiền không hợp lệ"
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/refunds/{id}/reject": {
+            "post": {
+                "tags": [
+                    "Admin Refunds"
+                ],
+                "summary": "Từ chối yêu cầu hoàn tiền",
+                "operationId": "adminRejectRefund",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "review_note"
+                                ],
+                                "properties": {
+                                    "review_note": {
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Đã từ chối yêu cầu hoàn tiền"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy yêu cầu hoàn tiền"
+                    },
+                    "422": {
+                        "description": "Yêu cầu đã xử lý"
                     }
                 }
             }
@@ -1122,8 +1428,16 @@
     },
     "tags": [
         {
+            "name": "Admin Orders",
+            "description": "Admin Orders"
+        },
+        {
             "name": "Admin Promotions",
             "description": "Admin Promotions"
+        },
+        {
+            "name": "Admin Refunds",
+            "description": "Admin Refunds"
         },
         {
             "name": "Catalog",

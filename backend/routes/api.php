@@ -12,6 +12,8 @@ use App\Http\Controllers\Api\V1\Customer\CartController;
 use App\Http\Controllers\Api\V1\Customer\CartPromotionController;
 use App\Http\Controllers\Api\V1\Customer\OrderController;
 use App\Http\Controllers\Api\V1\Admin\PromotionController as AdminPromotionController;
+use App\Http\Controllers\Api\V1\Admin\OrderController as AdminOrderController;
+use App\Http\Controllers\Api\V1\Admin\RefundController as AdminRefundController;
 use App\Http\Controllers\Api\V1\LocationController;
 
 
@@ -103,6 +105,25 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
                 Route::patch('{id}', [AdminPromotionController::class, 'update'])->name('update');
                 Route::delete('{id}', [AdminPromotionController::class, 'destroy'])->name('destroy');
                 Route::get('{id}/usage-stats', [AdminPromotionController::class, 'usageStats'])->name('usage-stats');
+            });
+
+        Route::prefix('orders')
+            ->name('orders.')
+            ->middleware('role:branch_manager,super_admin')
+            ->group(function (): void {
+                Route::get('/', [AdminOrderController::class, 'index'])->name('index');
+                Route::post('{id}/confirm', [AdminOrderController::class, 'confirm'])->name('confirm');
+                Route::get('{id}', [AdminOrderController::class, 'show'])->name('show');
+            });
+
+        Route::prefix('refunds')
+            ->name('refunds.')
+            ->middleware('role:branch_manager,super_admin')
+            ->group(function (): void {
+                Route::get('/', [AdminRefundController::class, 'index'])->name('index');
+                Route::post('{id}/approve', [AdminRefundController::class, 'approve'])->name('approve');
+                Route::post('{id}/reject', [AdminRefundController::class, 'reject'])->name('reject');
+                Route::get('{id}', [AdminRefundController::class, 'show'])->name('show');
             });
     });
 
