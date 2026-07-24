@@ -28,7 +28,9 @@ return new class extends Migration
             $table->string('status', 30)->default('requested')->index();
             $table->unsignedBigInteger('requested_amount');
             $table->unsignedBigInteger('approved_amount')->nullable();
+            $table->string('reason_type', 50);
             $table->text('reason');
+            $table->json('evidence_paths');
             $table->text('review_note')->nullable();
             $table->timestamp('reviewed_at')->nullable();
             $table->timestamp('refunded_at')->nullable();

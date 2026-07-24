@@ -32,6 +32,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'shipping_fee',
     'total_amount',
     'note',
+    'cancellation_reason_type',
+    'cancellation_reason',
     'placed_at',
     'cancelled_at',
 ])]

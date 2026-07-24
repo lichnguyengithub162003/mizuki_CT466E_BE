@@ -15,6 +15,8 @@ return [
 
     'default' => env('FILESYSTEM_DISK', 'local'),
 
+    'refund_evidence_disk' => env('REFUND_EVIDENCE_DISK', 'public'),
+
     /*
     |--------------------------------------------------------------------------
     | Filesystem Disks

@@ -15,7 +15,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'status',
     'requested_amount',
     'approved_amount',
+    'reason_type',
     'reason',
+    'evidence_paths',
     'review_note',
     'reviewed_at',
     'refunded_at',
@@ -30,6 +32,7 @@ class Refund extends Model
         return [
             'requested_amount' => 'integer',
             'approved_amount' => 'integer',
+            'evidence_paths' => 'array',
             'reviewed_at' => 'datetime',
             'refunded_at' => 'datetime',
         ];

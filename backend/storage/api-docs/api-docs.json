@@ -1006,6 +1006,118 @@
                     }
                 }
             }
+        },
+        "/api/v1/customer/orders/{id}/cancel": {
+            "post": {
+                "tags": [
+                    "Customer Orders"
+                ],
+                "summary": "Hủy đơn hàng",
+                "operationId": "customerCancelOrder",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "reason_type"
+                                ],
+                                "properties": {
+                                    "reason_type": {
+                                        "type": "string"
+                                    },
+                                    "reason": {
+                                        "type": "string",
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Đã hủy đơn hàng"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy đơn hàng"
+                    },
+                    "422": {
+                        "description": "Không thể hủy ở trạng thái hiện tại"
+                    }
+                }
+            }
+        },
+        "/api/v1/customer/orders/{id}/refund": {
+            "post": {
+                "tags": [
+                    "Customer Orders"
+                ],
+                "summary": "Gửi yêu cầu hoàn tiền",
+                "operationId": "customerRequestRefund",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "required": [
+                                    "reason_type",
+                                    "evidence[]"
+                                ],
+                                "properties": {
+                                    "reason_type": {
+                                        "type": "string"
+                                    },
+                                    "reason": {
+                                        "type": "string",
+                                        "nullable": true
+                                    },
+                                    "evidence[]": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string",
+                                            "format": "binary"
+                                        }
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Đã gửi yêu cầu hoàn tiền"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy đơn hàng"
+                    },
+                    "422": {
+                        "description": "Dữ liệu hoặc trạng thái đơn không hợp lệ"
+                    }
+                }
+            }
         }
     },
     "tags": [

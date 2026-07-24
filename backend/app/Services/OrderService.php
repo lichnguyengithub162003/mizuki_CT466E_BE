@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Enums\OrderStatus;
 use App\Events\OrderPlaced;
+use App\Events\OrderStatusUpdated;
+use App\Enums\OrderRequestReason;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\Order;
@@ -139,6 +141,43 @@ class OrderService extends BaseService
         Gate::forUser($user)->authorize('view', $order);
 
         return $order;
+    }
+
+    /** @param array{reason_type: string, reason?: string|null} $data */
+    public function cancel(User $user, int $orderId, array $data): ?Order
+    {
+        $result = $this->orders->transaction(function () use ($user, $orderId, $data): ?array {
+            $order = $this->orders->lockForUser($orderId, $user->id);
+
+            if ($order === null) {
+                return null;
+            }
+
+            Gate::forUser($user)->authorize('view', $order);
+
+            if (! in_array($order->status, [OrderStatus::Pending, OrderStatus::Confirmed], true)) {
+                throw ValidationException::withMessages([
+                    'status' => ['Đơn hàng ở trạng thái hiện tại không thể hủy'],
+                ]);
+            }
+
+            $previousStatus = $order->status;
+            $reasonType = OrderRequestReason::from($data['reason_type']);
+            $reason = trim((string) ($data['reason'] ?? '')) ?: $reasonType->label();
+
+            $this->orders->releaseReservedInventory($order);
+            $cancelledOrder = $this->orders->markCancelled($order, $reasonType->value, $reason);
+
+            return ['order' => $cancelledOrder, 'previous_status' => $previousStatus];
+        });
+
+        if ($result === null) {
+            return null;
+        }
+
+        OrderStatusUpdated::dispatch($result['order'], $result['previous_status']);
+
+        return $result['order'];
     }
 
     /** @param array<string, mixed> $data */

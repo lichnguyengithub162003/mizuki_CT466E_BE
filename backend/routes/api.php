@@ -86,6 +86,8 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
         Route::prefix('orders')->name('orders.')->middleware('role:customer')->group(function (): void {
             Route::get('/', [OrderController::class, 'index'])->name('index');
             Route::post('/', [OrderController::class, 'store'])->name('store');
+            Route::post('{id}/cancel', [OrderController::class, 'cancel'])->name('cancel');
+            Route::post('{id}/refund', [OrderController::class, 'requestRefund'])->name('refund');
             Route::get('{id}', [OrderController::class, 'show'])->name('show');
         });
     });

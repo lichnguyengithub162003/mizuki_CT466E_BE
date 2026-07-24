@@ -41,6 +41,8 @@ return new class extends Migration
             $table->unsignedBigInteger('shipping_fee')->default(0);
             $table->unsignedBigInteger('total_amount');
             $table->text('note')->nullable();
+            $table->string('cancellation_reason_type', 50)->nullable();
+            $table->text('cancellation_reason')->nullable();
             $table->timestamp('placed_at')->nullable();
             $table->timestamp('cancelled_at')->nullable();
             $table->timestamps();

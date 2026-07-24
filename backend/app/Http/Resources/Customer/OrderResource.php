@@ -53,6 +53,11 @@ class OrderResource extends JsonResource
             'discount_amount' => $this->discount_amount,
             'shipping_fee' => $this->shipping_fee,
             'total_amount' => $this->total_amount,
+            'cancellation' => $this->status->value !== 'cancelled' ? null : [
+                'reason_type' => $this->cancellation_reason_type,
+                'reason' => $this->cancellation_reason,
+                'cancelled_at' => $this->cancelled_at?->toISOString(),
+            ],
             'placed_at' => $this->placed_at?->toISOString(),
             'cancelled_at' => $this->cancelled_at?->toISOString(),
             'created_at' => $this->created_at?->toISOString(),

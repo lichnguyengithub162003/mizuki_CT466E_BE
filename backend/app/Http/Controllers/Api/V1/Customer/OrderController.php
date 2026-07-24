@@ -5,17 +5,23 @@ namespace App\Http\Controllers\Api\V1\Customer;
 use App\Http\Controllers\Api\V1\BaseController;
 use App\Http\Requests\Customer\CreateOrderRequest;
 use App\Http\Requests\Customer\IndexOrderRequest;
+use App\Http\Requests\Customer\CancelOrderRequest;
+use App\Http\Requests\Customer\RequestRefundRequest;
 use App\Http\Resources\Customer\OrderListResource;
 use App\Http\Resources\Customer\OrderResource;
+use App\Http\Resources\Customer\RefundResource;
 use App\Services\OrderService;
+use App\Services\RefundService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use OpenApi\Annotations as OA;
 
 class OrderController extends BaseController
 {
-    public function __construct(private readonly OrderService $orders)
-    {
+    public function __construct(
+        private readonly OrderService $orders,
+        private readonly RefundService $refunds,
+    ) {
     }
 
     /**
@@ -94,6 +100,80 @@ class OrderController extends BaseController
             request: $request,
             resource: new OrderResource($order),
             message: 'Lấy chi tiết đơn hàng thành công!',
+        );
+    }
+
+    /**
+     * @OA\Post(
+     *     path="/api/v1/customer/orders/{id}/cancel",
+     *     operationId="customerCancelOrder",
+     *     tags={"Customer Orders"},
+     *     summary="Hủy đơn hàng",
+     *     @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *     @OA\RequestBody(required=true, @OA\JsonContent(
+     *         required={"reason_type"},
+     *         @OA\Property(property="reason_type", type="string"),
+     *         @OA\Property(property="reason", type="string", nullable=true)
+     *     )),
+     *     @OA\Response(response=200, description="Đã hủy đơn hàng"),
+     *     @OA\Response(response=404, description="Không tìm thấy đơn hàng"),
+     *     @OA\Response(response=422, description="Không thể hủy ở trạng thái hiện tại")
+     * )
+     */
+    public function cancel(CancelOrderRequest $request, int $id): JsonResponse
+    {
+        $order = $this->orders->cancel($request->user(), $id, $request->validated());
+
+        if ($order === null) {
+            return $this->errorResponse('Không tìm thấy đơn hàng', 404);
+        }
+
+        return $this->successResponse(
+            request: $request,
+            resource: new OrderResource($order),
+            message: 'Hủy đơn hàng thành công!',
+        );
+    }
+
+    /**
+     * @OA\Post(
+     *     path="/api/v1/customer/orders/{id}/refund",
+     *     operationId="customerRequestRefund",
+     *     tags={"Customer Orders"},
+     *     summary="Gửi yêu cầu hoàn tiền",
+     *     @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *     @OA\RequestBody(required=true, @OA\MediaType(
+     *         mediaType="multipart/form-data",
+     *         @OA\Schema(
+     *             required={"reason_type", "evidence[]"},
+     *             @OA\Property(property="reason_type", type="string"),
+     *             @OA\Property(property="reason", type="string", nullable=true),
+     *             @OA\Property(property="evidence[]", type="array", @OA\Items(type="string", format="binary"))
+     *         )
+     *     )),
+     *     @OA\Response(response=201, description="Đã gửi yêu cầu hoàn tiền"),
+     *     @OA\Response(response=404, description="Không tìm thấy đơn hàng"),
+     *     @OA\Response(response=422, description="Dữ liệu hoặc trạng thái đơn không hợp lệ")
+     * )
+     */
+    public function requestRefund(RequestRefundRequest $request, int $id): JsonResponse
+    {
+        $refund = $this->refunds->request(
+            user: $request->user(),
+            orderId: $id,
+            data: $request->safe()->except('evidence'),
+            evidence: $request->file('evidence', []),
+        );
+
+        if ($refund === null) {
+            return $this->errorResponse('Không tìm thấy đơn hàng', 404);
+        }
+
+        return $this->successResponse(
+            request: $request,
+            resource: new RefundResource($refund),
+            message: 'Đã gửi yêu cầu hoàn tiền!',
+            status: 201,
         );
     }
 }

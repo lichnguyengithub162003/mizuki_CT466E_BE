@@ -101,4 +101,39 @@ class OrderRepository extends BaseRepository
 
         return $order === null ? null : $this->loadDetails($order);
     }
+
+    public function lockForUser(int $orderId, int $userId): ?Order
+    {
+        return $this->query()
+            ->where('user_id', $userId)
+            ->whereKey($orderId)
+            ->with('items')
+            ->lockForUpdate()
+            ->first();
+    }
+
+    public function releaseReservedInventory(Order $order): void
+    {
+        foreach ($order->items as $item) {
+            $inventory = $this->lockInventory($order->branch_id, $item->product_variant_id);
+
+            if ($inventory === null || $inventory->reserved_quantity < $item->quantity) {
+                throw new \RuntimeException('Reserved inventory is inconsistent for order '.$order->id);
+            }
+
+            $inventory->decrement('reserved_quantity', $item->quantity);
+        }
+    }
+
+    public function markCancelled(Order $order, string $reasonType, string $reason): Order
+    {
+        $order->fill([
+            'status' => \App\Enums\OrderStatus::Cancelled,
+            'cancellation_reason_type' => $reasonType,
+            'cancellation_reason' => $reason,
+            'cancelled_at' => now(),
+        ])->save();
+
+        return $this->loadDetails($order->refresh());
+    }
 }
