@@ -29,7 +29,11 @@ class CreateOrderRequest extends FormRequest
                         ->whereNull('deleted_at'),
                 ),
             ],
-            'payment_method' => ['required', Rule::enum(PaymentMethod::class)],
+            'payment_method' => ['required', Rule::in([
+                PaymentMethod::Wallet->value,
+                PaymentMethod::VNPay->value,
+                PaymentMethod::Cash->value,
+            ])],
         ];
     }
 
@@ -42,7 +46,7 @@ class CreateOrderRequest extends FormRequest
             'address_id.required_if' => 'Vui lòng chọn địa chỉ giao hàng',
             'address_id.exists' => 'Địa chỉ giao hàng không tồn tại hoặc không thuộc tài khoản của bạn',
             'payment_method.required' => 'Vui lòng chọn phương thức thanh toán',
-            'payment_method.enum' => 'Phương thức thanh toán không hợp lệ',
+            'payment_method.in' => 'Phương thức thanh toán không hợp lệ',
         ];
     }
 }

@@ -302,3 +302,17 @@ test('guest cannot access customer order endpoints', function (): void {
     $this->postJson('/api/v1/customer/orders', [])->assertUnauthorized();
     $this->getJson('/api/v1/customer/orders/1')->assertUnauthorized();
 });
+
+test('customer checkout does not accept the POS-only bank transfer method', function (): void {
+    $context = createOrderCheckoutContext();
+    $this->actingAs($context['user']);
+
+    $this->postJson('/api/v1/customer/orders', [
+        'delivery_method' => 'pickup',
+        'payment_method' => 'bank_transfer',
+    ])
+        ->assertUnprocessable()
+        ->assertJsonPath('data.errors.payment_method.0', 'Phương thức thanh toán không hợp lệ');
+
+    $this->assertDatabaseCount('orders', 0);
+});

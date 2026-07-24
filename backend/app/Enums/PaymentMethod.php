@@ -7,6 +7,7 @@ enum PaymentMethod: string
     case Wallet = 'wallet';
     case VNPay = 'vnpay';
     case Cash = 'cash';
+    case BankTransfer = 'bank_transfer';
 
     public function label(): string
     {
@@ -14,6 +15,7 @@ enum PaymentMethod: string
             self::Wallet => 'Ví Mizuki',
             self::VNPay => 'VNPay',
             self::Cash => 'Tiền mặt',
+            self::BankTransfer => 'Chuyển khoản ngân hàng',
         };
     }
 }

@@ -44,6 +44,17 @@ class UserRepository extends BaseRepository
         return $user;
     }
 
+    public function findCustomerByPhone(string $phone): ?User
+    {
+        /** @var User|null $user */
+        $user = $this->query()
+            ->where('phone', $phone)
+            ->where('role', UserRole::Customer)
+            ->first();
+
+        return $user;
+    }
+
     /**
      * @param array{name: string, email: string} $attributes
      */

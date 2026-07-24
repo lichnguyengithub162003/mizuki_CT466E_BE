@@ -19,10 +19,11 @@ class OrderResource extends JsonResource
             'status' => $this->status->value,
             'status_label' => $this->status->label(),
             'customer' => [
-                'id' => $this->user->id,
-                'name' => $this->user->name,
-                'email' => $this->user->email,
-                'phone' => $this->user->phone,
+                'id' => $this->user?->id,
+                'name' => $this->user?->name ?? $this->customer_name,
+                'email' => $this->user?->email,
+                'phone' => $this->user?->phone ?? $this->customer_phone,
+                'registered' => $this->user_id !== null,
             ],
             'branch' => [
                 'id' => $this->branch->id,

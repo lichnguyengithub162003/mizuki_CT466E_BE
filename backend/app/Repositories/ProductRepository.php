@@ -130,6 +130,76 @@ class ProductRepository extends BaseRepository
     }
 
     /**
+     * @return Collection<int, ProductVariant>
+     */
+    public function searchActivePosVariants(string $keyword, int $branchId, int $limit): Collection
+    {
+        return ProductVariant::query()
+            ->where('is_active', true)
+            ->whereHas('product', fn (Builder $query): Builder => $query->where('is_active', true))
+            ->where(function (Builder $query) use ($keyword): void {
+                $query->where('sku', 'like', "%{$keyword}%")
+                    ->orWhere('barcode', 'like', "%{$keyword}%")
+                    ->orWhereHas(
+                        'product',
+                        fn (Builder $productQuery): Builder => $productQuery
+                            ->where('name', 'like', "%{$keyword}%"),
+                    );
+            })
+            ->with([
+                'product:id,name',
+                'inventories' => fn (Builder|HasMany $query): Builder|HasMany => $query
+                    ->where('branch_id', $branchId),
+            ])
+            ->orderByRaw(
+                'CASE WHEN barcode = ? THEN 0 WHEN sku = ? THEN 1 ELSE 2 END',
+                [$keyword, $keyword],
+            )
+            ->orderBy('name')
+            ->limit($limit)
+            ->get();
+    }
+
+    public function findActivePosVariantByBarcode(string $barcode, int $branchId): ?ProductVariant
+    {
+        return ProductVariant::query()
+            ->where('barcode', $barcode)
+            ->where('is_active', true)
+            ->whereHas('product', fn (Builder $query): Builder => $query->where('is_active', true))
+            ->with([
+                'product:id,name',
+                'inventories' => fn (Builder|HasMany $query): Builder|HasMany => $query
+                    ->where('branch_id', $branchId),
+            ])
+            ->first();
+    }
+
+    public function findActivePosVariant(int $variantId, int $branchId): ?ProductVariant
+    {
+        return ProductVariant::query()
+            ->whereKey($variantId)
+            ->where('is_active', true)
+            ->whereHas('product', fn (Builder $query): Builder => $query->where('is_active', true))
+            ->with([
+                'product:id,name',
+                'inventories' => fn (Builder|HasMany $query): Builder|HasMany => $query
+                    ->where('branch_id', $branchId),
+            ])
+            ->first();
+    }
+
+    public function lockActivePosVariant(int $variantId): ?ProductVariant
+    {
+        return ProductVariant::query()
+            ->whereKey($variantId)
+            ->where('is_active', true)
+            ->whereHas('product', fn (Builder $query): Builder => $query->where('is_active', true))
+            ->with('product:id,name')
+            ->lockForUpdate()
+            ->first();
+    }
+
+    /**
      * Return the lowest effective variant price for each product.
      *
      * @return Builder<ProductVariant>

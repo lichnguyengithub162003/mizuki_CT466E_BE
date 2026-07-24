@@ -13,6 +13,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 #[Fillable([
     'order_number',
     'user_id',
+    'customer_name',
+    'customer_phone',
     'branch_id',
     'created_by_user_id',
     'user_address_id',

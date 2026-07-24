@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\Customer\OrderController;
 use App\Http\Controllers\Api\V1\Admin\PromotionController as AdminPromotionController;
 use App\Http\Controllers\Api\V1\Admin\OrderController as AdminOrderController;
 use App\Http\Controllers\Api\V1\Admin\RefundController as AdminRefundController;
+use App\Http\Controllers\Api\V1\Cashier\PosController;
 use App\Http\Controllers\Api\V1\LocationController;
 
 
@@ -126,6 +127,30 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
                 Route::get('{id}', [AdminRefundController::class, 'show'])->name('show');
             });
     });
+
+    // Cashier POS routes
+    Route::prefix('cashier/pos')
+        ->name('cashier.pos.')
+        ->middleware(['auth:sanctum', 'role:cashier'])
+        ->group(function (): void {
+            Route::get('products', [PosController::class, 'products'])->name('products.index');
+            Route::get('products/barcode/{barcode}', [PosController::class, 'barcode'])->name('products.barcode');
+            Route::post('sessions', [PosController::class, 'storeSession'])->name('sessions.store');
+            Route::get('sessions/{code}', [PosController::class, 'showSession'])->name('sessions.show');
+            Route::post('sessions/{code}/items', [PosController::class, 'storeItem'])->name('sessions.items.store');
+            Route::patch('sessions/{code}/items/{variantId}', [PosController::class, 'updateItem'])
+                ->name('sessions.items.update');
+            Route::delete('sessions/{code}/items/{variantId}', [PosController::class, 'destroyItem'])
+                ->name('sessions.items.destroy');
+            Route::patch('sessions/{code}/customer', [PosController::class, 'updateCustomer'])
+                ->name('sessions.customer.update');
+            Route::patch('sessions/{code}/payment-method', [PosController::class, 'updatePaymentMethod'])
+                ->name('sessions.payment-method.update');
+            Route::post('sessions/{code}/confirm', [PosController::class, 'confirm'])
+                ->name('sessions.confirm');
+        });
+
+    Route::get('pos/display/{code}', [PosController::class, 'display'])->name('pos.display');
 
     //Location routes
     Route::prefix('locations')->name('locations.')->group(function (): void {

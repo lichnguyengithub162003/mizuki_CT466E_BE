@@ -487,6 +487,360 @@
                 }
             }
         },
+        "/api/v1/cashier/pos/products": {
+            "get": {
+                "tags": [
+                    "Cashier POS"
+                ],
+                "summary": "Tìm variant theo tên sản phẩm, SKU hoặc barcode",
+                "operationId": "cashierPosSearchProducts",
+                "parameters": [
+                    {
+                        "name": "keyword",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 20
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Kết quả tìm kiếm"
+                    },
+                    "403": {
+                        "description": "Không có quyền hoặc chưa có chi nhánh"
+                    },
+                    "422": {
+                        "description": "Dữ liệu không hợp lệ"
+                    }
+                }
+            }
+        },
+        "/api/v1/cashier/pos/products/barcode/{barcode}": {
+            "get": {
+                "tags": [
+                    "Cashier POS"
+                ],
+                "summary": "Tra chính xác variant bằng barcode",
+                "operationId": "cashierPosFindBarcode",
+                "parameters": [
+                    {
+                        "name": "barcode",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Variant tìm thấy"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy sản phẩm"
+                    }
+                }
+            }
+        },
+        "/api/v1/cashier/pos/sessions": {
+            "post": {
+                "tags": [
+                    "Cashier POS"
+                ],
+                "summary": "Tạo phiên POS",
+                "operationId": "cashierPosCreateSession",
+                "responses": {
+                    "201": {
+                        "description": "Đã tạo phiên POS"
+                    },
+                    "403": {
+                        "description": "Thu ngân chưa được gán chi nhánh"
+                    }
+                }
+            }
+        },
+        "/api/v1/cashier/pos/sessions/{code}": {
+            "get": {
+                "tags": [
+                    "Cashier POS"
+                ],
+                "summary": "Xem phiên POS",
+                "operationId": "cashierPosShowSession",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Chi tiết phiên POS"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy phiên POS"
+                    }
+                }
+            }
+        },
+        "/api/v1/cashier/pos/sessions/{code}/items": {
+            "post": {
+                "tags": [
+                    "Cashier POS"
+                ],
+                "summary": "Thêm sản phẩm vào phiên POS",
+                "operationId": "cashierPosAddItem",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Đã thêm sản phẩm"
+                    },
+                    "422": {
+                        "description": "Không đủ tồn kho"
+                    }
+                }
+            }
+        },
+        "/api/v1/cashier/pos/sessions/{code}/items/{variantId}": {
+            "delete": {
+                "tags": [
+                    "Cashier POS"
+                ],
+                "summary": "Xóa sản phẩm khỏi phiên POS",
+                "operationId": "cashierPosDeleteItem",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "variantId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Đã xóa sản phẩm"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy phiên hoặc sản phẩm"
+                    }
+                }
+            },
+            "patch": {
+                "tags": [
+                    "Cashier POS"
+                ],
+                "summary": "Cập nhật số lượng sản phẩm",
+                "operationId": "cashierPosUpdateItem",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "variantId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Đã cập nhật sản phẩm"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy phiên hoặc sản phẩm"
+                    }
+                }
+            }
+        },
+        "/api/v1/cashier/pos/sessions/{code}/customer": {
+            "patch": {
+                "tags": [
+                    "Cashier POS"
+                ],
+                "summary": "Gắn khách hàng hoặc khách vãng lai",
+                "operationId": "cashierPosUpdateCustomer",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Đã cập nhật khách hàng"
+                    },
+                    "422": {
+                        "description": "Dữ liệu khách hàng không hợp lệ"
+                    }
+                }
+            }
+        },
+        "/api/v1/cashier/pos/sessions/{code}/payment-method": {
+            "patch": {
+                "tags": [
+                    "Cashier POS"
+                ],
+                "summary": "Chọn phương thức thanh toán POS",
+                "operationId": "cashierPosUpdatePayment",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Đã cập nhật phương thức thanh toán"
+                    },
+                    "422": {
+                        "description": "Phương thức không hợp lệ"
+                    }
+                }
+            }
+        },
+        "/api/v1/cashier/pos/sessions/{code}/confirm": {
+            "post": {
+                "tags": [
+                    "Cashier POS"
+                ],
+                "summary": "Xác nhận đã nhận tiền và chốt đơn POS",
+                "operationId": "cashierPosConfirm",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Đã chốt đơn POS"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy phiên POS"
+                    },
+                    "422": {
+                        "description": "Phiên hoặc tồn kho không hợp lệ"
+                    }
+                }
+            }
+        },
+        "/api/v1/pos/display/{code}": {
+            "get": {
+                "tags": [
+                    "Cashier POS"
+                ],
+                "summary": "Màn hình đơn hàng dành cho khách tại quầy",
+                "operationId": "publicPosDisplay",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Thông tin màn hình khách"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy hoặc phiên đã hết hạn"
+                    }
+                }
+            }
+        },
         "/api/v1/brands": {
             "get": {
                 "tags": [
@@ -1438,6 +1792,10 @@
         {
             "name": "Admin Refunds",
             "description": "Admin Refunds"
+        },
+        {
+            "name": "Cashier POS",
+            "description": "Cashier POS"
         },
         {
             "name": "Catalog",
