@@ -39,6 +39,7 @@ test('it defines order relationships', function (): void {
         ->and($order->userAddress()->getRelated())->toBeInstanceOf(UserAddress::class)
         ->and($order->items()->getRelated())->toBeInstanceOf(OrderItem::class)
         ->and($order->payments()->getRelated())->toBeInstanceOf(Payment::class)
+        ->and($order->payment()->getRelated())->toBeInstanceOf(Payment::class)
         ->and($order->shipment()->getRelated())->toBeInstanceOf(Shipment::class)
         ->and($order->walletTransactions()->getRelated())->toBeInstanceOf(WalletTransaction::class)
         ->and($order->promotionUsages()->getRelated())->toBeInstanceOf(PromotionUsage::class)

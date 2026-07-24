@@ -2,6 +2,7 @@
 
 use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
+use App\Enums\PaymentStatus;
 use App\Enums\UserRole;
 use App\Events\OrderPlaced;
 use App\Models\Brand;
@@ -329,6 +330,7 @@ test('confirm creates a counter order reserves stock and cannot run twice', func
         ->assertJsonPath('data.order.status', 'confirmed');
 
     $order = Order::query()->findOrFail($response->json('data.order.id'));
+    $payment = $order->payment()->firstOrFail();
     expect($order->user_id)->toBeNull()
         ->and($order->customer_name)->toBe('Khách tại quầy')
         ->and($order->customer_phone)->toBe('0987654321')
@@ -339,6 +341,12 @@ test('confirm creates a counter order reserves stock and cannot run twice', func
         ->and($order->payment_method)->toBe(PaymentMethod::BankTransfer)
         ->and($order->status)->toBe(OrderStatus::Confirmed)
         ->and($order->total_amount)->toBe(350_000)
+        ->and($payment->method)->toBe(PaymentMethod::BankTransfer)
+        ->and($payment->status)->toBe(PaymentStatus::Paid)
+        ->and($payment->amount)->toBe(350_000)
+        ->and($payment->user_id)->toBeNull()
+        ->and($payment->processed_by_user_id)->toBe($context['cashier']->id)
+        ->and($payment->paid_at)->not->toBeNull()
         ->and($context['inventory']->refresh()->quantity)->toBe(10)
         ->and($context['inventory']->reserved_quantity)->toBe(4);
     $this->assertDatabaseCount('order_items', 1);
@@ -348,6 +356,26 @@ test('confirm creates a counter order reserves stock and cannot run twice', func
         ->assertUnprocessable()
         ->assertJsonPath('data.errors.status.0', 'Phiên POS đã được xử lý');
     $this->assertDatabaseCount('orders', 1);
+    $this->assertDatabaseCount('payments', 1);
+});
+
+test('POS cash confirmation creates a paid payment', function (): void {
+    $context = createPosContext();
+    $session = createOpenPosSession($context['cashier'], $context['branch']);
+    addPosSessionItem($session, $context['variant']);
+    $this->actingAs($context['cashier']);
+
+    $response = $this->postJson("/api/v1/cashier/pos/sessions/{$session->code}/confirm")
+        ->assertOk();
+
+    $order = Order::query()->findOrFail($response->json('data.order.id'));
+    $payment = $order->payment()->firstOrFail();
+
+    expect($payment->method)->toBe(PaymentMethod::Cash)
+        ->and($payment->status)->toBe(PaymentStatus::Paid)
+        ->and($payment->amount)->toBe($order->total_amount)
+        ->and($payment->paid_at)->not->toBeNull()
+        ->and($payment->processed_by_user_id)->toBe($context['cashier']->id);
 });
 
 test('confirm revalidates stock and rolls back without creating an order', function (): void {

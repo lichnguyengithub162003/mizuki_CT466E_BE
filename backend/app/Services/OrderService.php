@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\OrderStatus;
+use App\Enums\PaymentStatus;
 use App\Events\OrderPlaced;
 use App\Events\OrderStatusUpdated;
 use App\Enums\OrderRequestReason;
@@ -28,6 +29,7 @@ class OrderService extends BaseService
         private readonly PromotionRepository $promotions,
         private readonly CartService $cartService,
         private readonly PromotionService $promotionService,
+        private readonly PaymentService $paymentService,
     ) {
     }
 
@@ -105,6 +107,7 @@ class OrderService extends BaseService
                 $this->promotions->recordUsage($promotion, $user, $order, $discountAmount);
             }
 
+            $this->paymentService->createForOrder($order, PaymentStatus::Pending);
             $this->carts->clearAfterCheckout($cart);
 
             return $this->orders->loadDetails($order);

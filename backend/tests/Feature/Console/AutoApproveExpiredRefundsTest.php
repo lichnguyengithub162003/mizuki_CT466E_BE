@@ -2,11 +2,13 @@
 
 use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
+use App\Enums\PaymentStatus;
 use App\Enums\UserRole;
 use App\Models\Branch;
 use App\Models\Order;
 use App\Models\Refund;
 use App\Models\User;
+use App\Services\PaymentService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -147,11 +149,16 @@ test('auto approval preserves order wallet and wallet transactions', function ()
     config()->set('refund.auto_approve_hours', 48);
     $context = createAutoApprovalRefund($now->copy()->subHours(72));
     $wallet = $context['user']->wallet()->create(['balance' => 500_000]);
+    $payment = app(PaymentService::class)->createForOrder(
+        $context['order'],
+        PaymentStatus::Paid,
+    );
 
     $this->artisan('refunds:auto-approve')->assertSuccessful();
 
     expect($context['order']->refresh()->status)->toBe(OrderStatus::Delivered)
         ->and($wallet->refresh()->balance)->toBe(500_000)
+        ->and($payment->refresh()->status)->toBe(PaymentStatus::Paid)
         ->and($context['refund']->refresh()->wallet_transaction_id)->toBeNull();
     $this->assertDatabaseCount('wallet_transactions', 0);
 });

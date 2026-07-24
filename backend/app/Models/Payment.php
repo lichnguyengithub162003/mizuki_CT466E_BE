@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\PaymentMethod;
+use App\Enums\PaymentStatus;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable([
     'payment_number',
     'order_id',
+    'user_id',
     'appointment_id',
     'wallet_transaction_id',
     'processed_by_user_id',
@@ -21,6 +23,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'provider_response',
     'paid_at',
     'failed_at',
+    'cancelled_at',
+    'refunded_at',
 ])]
 class Payment extends Model
 {
@@ -31,10 +35,13 @@ class Payment extends Model
     {
         return [
             'method' => PaymentMethod::class,
+            'status' => PaymentStatus::class,
             'amount' => 'integer',
             'provider_response' => 'array',
             'paid_at' => 'datetime',
             'failed_at' => 'datetime',
+            'cancelled_at' => 'datetime',
+            'refunded_at' => 'datetime',
         ];
     }
 
@@ -44,6 +51,14 @@ class Payment extends Model
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 
     /**

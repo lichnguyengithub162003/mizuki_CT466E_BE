@@ -4,6 +4,7 @@ namespace App\Services\Cashier;
 
 use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
+use App\Enums\PaymentStatus;
 use App\Enums\UserRole;
 use App\Events\OrderPlaced;
 use App\Models\PosSession;
@@ -14,6 +15,7 @@ use App\Repositories\PosSessionRepository;
 use App\Repositories\ProductRepository;
 use App\Repositories\UserRepository;
 use App\Services\BaseService;
+use App\Services\PaymentService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Str;
@@ -26,6 +28,7 @@ class PosService extends BaseService
         private readonly ProductRepository $products,
         private readonly UserRepository $users,
         private readonly OrderRepository $orders,
+        private readonly PaymentService $paymentService,
     ) {
     }
 
@@ -359,6 +362,11 @@ class PosService extends BaseService
                 'placed_at' => now(),
             ]);
             $this->orders->createItems($order, $snapshots);
+            $this->paymentService->createForOrder(
+                order: $order,
+                status: PaymentStatus::Paid,
+                processedByUserId: $cashier->id,
+            );
 
             return [
                 'session' => $this->sessions->complete($session, $order),

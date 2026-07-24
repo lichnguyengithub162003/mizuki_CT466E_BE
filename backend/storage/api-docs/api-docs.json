@@ -1778,6 +1778,39 @@
                     }
                 }
             }
+        },
+        "/api/v1/customer/orders/{id}/payment": {
+            "get": {
+                "tags": [
+                    "Customer Orders"
+                ],
+                "summary": "Xem trạng thái thanh toán của đơn hàng",
+                "operationId": "customerShowOrderPayment",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Thông tin thanh toán"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không phải khách hàng"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy thanh toán"
+                    }
+                }
+            }
         }
     },
     "tags": [

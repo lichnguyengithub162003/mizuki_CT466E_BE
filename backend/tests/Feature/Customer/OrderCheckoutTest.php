@@ -2,6 +2,7 @@
 
 use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
+use App\Services\PaymentService;
 use App\Enums\UserRole;
 use App\Events\OrderPlaced;
 use App\Models\Brand;
@@ -130,6 +131,13 @@ test('customer can create an order from a valid cart and cart items are cleared'
 
     $orderId = $response->json('data.id');
     $this->assertDatabaseHas('orders', ['id' => $orderId, 'payment_method' => 'cash']);
+    $this->assertDatabaseHas('payments', [
+        'order_id' => $orderId,
+        'user_id' => $context['user']->id,
+        'method' => 'cash',
+        'status' => 'pending',
+        'amount' => 300_000,
+    ]);
     $this->assertDatabaseCount('cart_items', 0);
     $this->assertDatabaseHas('carts', ['id' => $context['cart']->id, 'promotion_id' => null]);
     expect($context['inventory']->refresh()->reserved_quantity)->toBe(3);
@@ -150,7 +158,7 @@ test('delivery checkout snapshots an address belonging to the customer', functio
     ]);
     $this->actingAs($context['user']);
 
-    $this->postJson('/api/v1/customer/orders', [
+    $response = $this->postJson('/api/v1/customer/orders', [
         'delivery_method' => 'delivery',
         'address_id' => $address->id,
         'payment_method' => 'vnpay',
@@ -159,6 +167,14 @@ test('delivery checkout snapshots an address belonging to the customer', functio
         ->assertJsonPath('data.delivery_method', 'delivery')
         ->assertJsonPath('data.delivery_address.recipient_name', 'Nguyễn Mizuki')
         ->assertJsonPath('data.delivery_address.full_address', '123 Đường 3/2, Tổ 3, An Khánh, Ninh Kiều, Cần Thơ');
+
+    $this->assertDatabaseHas('payments', [
+        'order_id' => $response->json('data.id'),
+        'user_id' => $context['user']->id,
+        'method' => 'vnpay',
+        'status' => 'pending',
+        'amount' => 300_000,
+    ]);
 });
 
 test('checkout with a promotion records real usage and increments the cached count', function (): void {
@@ -192,6 +208,13 @@ test('checkout with a promotion records real usage and increments the cached cou
         ->assertJsonPath('data.total_amount', 270_000);
 
     expect($promotion->refresh()->usage_count)->toBe(1);
+    $this->assertDatabaseHas('payments', [
+        'order_id' => $response->json('data.id'),
+        'user_id' => $context['user']->id,
+        'method' => 'wallet',
+        'status' => 'pending',
+        'amount' => 270_000,
+    ]);
     $this->assertDatabaseHas('promotion_usages', [
         'promotion_id' => $promotion->id,
         'user_id' => $context['user']->id,
@@ -315,4 +338,25 @@ test('customer checkout does not accept the POS-only bank transfer method', func
         ->assertJsonPath('data.errors.payment_method.0', 'Phương thức thanh toán không hợp lệ');
 
     $this->assertDatabaseCount('orders', 0);
+});
+
+test('payment failure rolls back customer order and checkout writes', function (): void {
+    $context = createOrderCheckoutContext();
+    $paymentService = Mockery::mock(PaymentService::class);
+    $paymentService->shouldReceive('createForOrder')
+        ->once()
+        ->andThrow(new RuntimeException('Simulated payment persistence failure'));
+    $this->app->instance(PaymentService::class, $paymentService);
+    $this->actingAs($context['user']);
+    $this->withoutExceptionHandling();
+
+    expect(fn () => $this->postJson('/api/v1/customer/orders', [
+        'delivery_method' => 'pickup',
+        'payment_method' => 'cash',
+    ]))->toThrow(RuntimeException::class, 'Simulated payment persistence failure');
+
+    $this->assertDatabaseCount('orders', 0);
+    $this->assertDatabaseCount('payments', 0);
+    $this->assertDatabaseCount('cart_items', 1);
+    expect($context['inventory']->refresh()->reserved_quantity)->toBe(1);
 });

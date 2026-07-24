@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\Customer\FavoriteController;
 use App\Http\Controllers\Api\V1\Customer\CartController;
 use App\Http\Controllers\Api\V1\Customer\CartPromotionController;
 use App\Http\Controllers\Api\V1\Customer\OrderController;
+use App\Http\Controllers\Api\V1\Customer\OrderPaymentController;
 use App\Http\Controllers\Api\V1\Admin\PromotionController as AdminPromotionController;
 use App\Http\Controllers\Api\V1\Admin\OrderController as AdminOrderController;
 use App\Http\Controllers\Api\V1\Admin\RefundController as AdminRefundController;
@@ -91,6 +92,7 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
             Route::post('/', [OrderController::class, 'store'])->name('store');
             Route::post('{id}/cancel', [OrderController::class, 'cancel'])->name('cancel');
             Route::post('{id}/refund', [OrderController::class, 'requestRefund'])->name('refund');
+            Route::get('{id}/payment', [OrderPaymentController::class, 'show'])->name('payment.show');
             Route::get('{id}', [OrderController::class, 'show'])->name('show');
         });
     });

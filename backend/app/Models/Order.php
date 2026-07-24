@@ -116,6 +116,14 @@ class Order extends Model
     }
 
     /**
+     * @return HasOne<Payment, $this>
+     */
+    public function payment(): HasOne
+    {
+        return $this->hasOne(Payment::class);
+    }
+
+    /**
      * @return HasOne<Shipment, $this>
      */
     public function shipment(): HasOne

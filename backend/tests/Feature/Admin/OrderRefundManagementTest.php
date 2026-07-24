@@ -2,12 +2,14 @@
 
 use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
+use App\Enums\PaymentStatus;
 use App\Enums\UserRole;
 use App\Events\OrderStatusUpdated;
 use App\Models\Branch;
 use App\Models\Order;
 use App\Models\Refund;
 use App\Models\User;
+use App\Services\PaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
@@ -216,6 +218,7 @@ test('admin approves requested refund with default amount and stores reviewer me
     $customer = User::factory()->create(['role' => UserRole::Customer]);
     $order = createAdminManagedOrder($branch, $customer, OrderStatus::Delivered);
     $refund = createAdminManagedRefund($order, $customer);
+    $payment = app(PaymentService::class)->createForOrder($order, PaymentStatus::Paid);
     $admin = User::factory()->create(['role' => UserRole::SuperAdmin]);
     $this->actingAs($admin);
 
@@ -232,6 +235,7 @@ test('admin approves requested refund with default amount and stores reviewer me
         ->and($refund->reviewed_at)->not->toBeNull()
         ->and($refund->wallet_transaction_id)->toBeNull();
     $this->assertDatabaseCount('wallet_transactions', 0);
+    expect($payment->refresh()->status)->toBe(PaymentStatus::Paid);
 
     $this->postJson("/api/v1/admin/refunds/{$refund->id}/approve")
         ->assertUnprocessable()

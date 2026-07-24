@@ -12,9 +12,6 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('payments', function (Blueprint $table): void {
-            $table->dropForeign(['order_id']);
-            $table->foreignId('order_id')->nullable()->change();
-            $table->foreign('order_id')->references('id')->on('orders')->restrictOnDelete();
             $table->foreignId('appointment_id')
                 ->nullable()
                 ->constrained()
@@ -32,9 +29,6 @@ return new class extends Migration
         Schema::table('payments', function (Blueprint $table): void {
             $table->dropIndex(['appointment_id', 'status']);
             $table->dropConstrainedForeignId('appointment_id');
-            $table->dropForeign(['order_id']);
-            $table->foreignId('order_id')->nullable(false)->change();
-            $table->foreign('order_id')->references('id')->on('orders')->restrictOnDelete();
         });
     }
 };

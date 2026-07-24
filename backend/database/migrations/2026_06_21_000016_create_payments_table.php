@@ -14,7 +14,15 @@ return new class extends Migration
         Schema::create('payments', function (Blueprint $table): void {
             $table->id();
             $table->string('payment_number', 30)->unique();
-            $table->foreignId('order_id')->constrained()->restrictOnDelete();
+            $table->foreignId('order_id')
+                ->nullable()
+                ->unique()
+                ->constrained()
+                ->restrictOnDelete();
+            $table->foreignId('user_id')
+                ->nullable()
+                ->constrained()
+                ->nullOnDelete();
             $table->foreignId('wallet_transaction_id')
                 ->nullable()
                 ->unique()
@@ -32,6 +40,8 @@ return new class extends Migration
             $table->json('provider_response')->nullable();
             $table->timestamp('paid_at')->nullable();
             $table->timestamp('failed_at')->nullable();
+            $table->timestamp('cancelled_at')->nullable();
+            $table->timestamp('refunded_at')->nullable();
             $table->timestamps();
 
             $table->index(['order_id', 'status']);
