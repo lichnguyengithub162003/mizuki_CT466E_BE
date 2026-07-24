@@ -5,8 +5,10 @@ namespace App\Repositories;
 use App\Enums\UserRole;
 use App\Models\Refund;
 use Closure;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /** @extends BaseRepository<Refund> */
@@ -132,6 +134,40 @@ class RefundRepository extends BaseRepository
 
         return $this->findForAdmin($refund->id, UserRole::SuperAdmin, null)
             ?? $refund->refresh();
+    }
+
+    /**
+     * @return Collection<int, int>
+     */
+    public function expiredRequestedIds(CarbonInterface $cutoff, int $limit): Collection
+    {
+        return $this->query()
+            ->where('status', 'requested')
+            ->where('created_at', '<=', $cutoff)
+            ->orderBy('id')
+            ->limit($limit)
+            ->pluck('id');
+    }
+
+    public function lockExpiredRequested(int $refundId, CarbonInterface $cutoff): ?Refund
+    {
+        return $this->query()
+            ->whereKey($refundId)
+            ->where('status', 'requested')
+            ->where('created_at', '<=', $cutoff)
+            ->lockForUpdate()
+            ->first();
+    }
+
+    public function autoApprove(Refund $refund, string $reviewNote): void
+    {
+        $refund->fill([
+            'status' => 'approved',
+            'approved_amount' => $refund->requested_amount,
+            'reviewed_by_user_id' => null,
+            'review_note' => $reviewNote,
+            'reviewed_at' => now(),
+        ])->save();
     }
 
     /** @return array<int, string> */
