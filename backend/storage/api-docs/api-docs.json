@@ -1811,6 +1811,78 @@
                     }
                 }
             }
+        },
+        "/api/v1/customer/orders/{id}/payment/vnpay": {
+            "post": {
+                "tags": [
+                    "Customer Payments"
+                ],
+                "summary": "Tạo URL thanh toán VNPay Sandbox",
+                "operationId": "customerCreateVnPayUrl",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Tạo URL thành công"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không phải khách hàng"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy đơn hàng"
+                    },
+                    "422": {
+                        "description": "Đơn hàng không thể thanh toán qua VNPay"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/payments/vnpay/return": {
+            "get": {
+                "tags": [
+                    "Payments"
+                ],
+                "summary": "Xác minh kết quả VNPay trả về cho frontend",
+                "operationId": "vnpayReturn",
+                "responses": {
+                    "200": {
+                        "description": "Callback hợp lệ"
+                    },
+                    "400": {
+                        "description": "Callback không hợp lệ"
+                    }
+                }
+            }
+        },
+        "/api/v1/payments/vnpay/ipn": {
+            "get": {
+                "tags": [
+                    "Payments"
+                ],
+                "summary": "Tiếp nhận IPN từ VNPay",
+                "operationId": "vnpayIpn",
+                "responses": {
+                    "200": {
+                        "description": "Phản hồi theo contract VNPay"
+                    }
+                }
+            }
         }
     },
     "tags": [
@@ -1845,6 +1917,14 @@
         {
             "name": "Customer Orders",
             "description": "Customer Orders"
+        },
+        {
+            "name": "Customer Payments",
+            "description": "Customer Payments"
+        },
+        {
+            "name": "Payments",
+            "description": "Payments"
         }
     ]
 }

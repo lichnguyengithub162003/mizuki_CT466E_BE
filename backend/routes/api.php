@@ -1,23 +1,23 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\V1\Admin\OrderController as AdminOrderController;
+use App\Http\Controllers\Api\V1\Admin\PromotionController as AdminPromotionController;
+use App\Http\Controllers\Api\V1\Admin\RefundController as AdminRefundController;
 use App\Http\Controllers\Api\V1\Auth\CustomerAuthController;
 use App\Http\Controllers\Api\V1\Auth\GoogleAuthController;
+use App\Http\Controllers\Api\V1\Cashier\PosController;
 use App\Http\Controllers\Api\V1\Catalog\BrandController;
 use App\Http\Controllers\Api\V1\Catalog\CategoryController;
 use App\Http\Controllers\Api\V1\Catalog\ProductController;
-use App\Http\Controllers\Api\V1\Customer\ProfileController;
-use App\Http\Controllers\Api\V1\Customer\FavoriteController;
 use App\Http\Controllers\Api\V1\Customer\CartController;
 use App\Http\Controllers\Api\V1\Customer\CartPromotionController;
+use App\Http\Controllers\Api\V1\Customer\FavoriteController;
 use App\Http\Controllers\Api\V1\Customer\OrderController;
 use App\Http\Controllers\Api\V1\Customer\OrderPaymentController;
-use App\Http\Controllers\Api\V1\Admin\PromotionController as AdminPromotionController;
-use App\Http\Controllers\Api\V1\Admin\OrderController as AdminOrderController;
-use App\Http\Controllers\Api\V1\Admin\RefundController as AdminRefundController;
-use App\Http\Controllers\Api\V1\Cashier\PosController;
+use App\Http\Controllers\Api\V1\Customer\ProfileController;
 use App\Http\Controllers\Api\V1\LocationController;
-
+use App\Http\Controllers\Api\V1\Payment\VnPayController;
+use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->name('api.v1.')->group(function (): void {
 
@@ -93,8 +93,19 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
             Route::post('{id}/cancel', [OrderController::class, 'cancel'])->name('cancel');
             Route::post('{id}/refund', [OrderController::class, 'requestRefund'])->name('refund');
             Route::get('{id}/payment', [OrderPaymentController::class, 'show'])->name('payment.show');
+            Route::post('{id}/payment/vnpay', [VnPayController::class, 'create'])
+                ->middleware('throttle:10,1')
+                ->name('payment.vnpay.create');
             Route::get('{id}', [OrderController::class, 'show'])->name('show');
         });
+    });
+
+    // VNPay callbacks are public and authenticated by the gateway signature.
+    Route::prefix('payments/vnpay')->name('payments.vnpay.')->group(function (): void {
+        Route::get('return', [VnPayController::class, 'handleReturn'])
+            ->middleware('throttle:60,1')
+            ->name('return');
+        Route::get('ipn', [VnPayController::class, 'ipn'])->name('ipn');
     });
 
     // Admin routes
@@ -154,13 +165,12 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
 
     Route::get('pos/display/{code}', [PosController::class, 'display'])->name('pos.display');
 
-    //Location routes
+    // Location routes
     Route::prefix('locations')->name('locations.')->group(function (): void {
         Route::get('provinces', [LocationController::class, 'provinces'])->name('provinces');
         Route::get('provinces/{provinceId}/districts', [LocationController::class, 'districts'])->name('districts');
         Route::get('districts/{districtId}/wards', [LocationController::class, 'wards'])->name('wards');
     });
-
 
     // Public catalog routes
     Route::get('categories', [CategoryController::class, 'index'])->name('categories.index');
