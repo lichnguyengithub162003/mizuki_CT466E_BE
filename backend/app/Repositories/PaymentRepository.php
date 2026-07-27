@@ -84,6 +84,8 @@ class PaymentRepository extends BaseRepository
             'provider_response' => $providerResponse,
             'paid_at' => now(),
             'failed_at' => null,
+            'cancelled_at' => null,
+            'refunded_at' => null,
         ]);
     }
 
@@ -94,7 +96,10 @@ class PaymentRepository extends BaseRepository
             'status' => PaymentStatus::Failed,
             'provider' => 'vnpay',
             'provider_response' => $providerResponse,
+            'paid_at' => null,
             'failed_at' => now(),
+            'cancelled_at' => null,
+            'refunded_at' => null,
         ]);
     }
 
@@ -138,7 +143,10 @@ class PaymentRepository extends BaseRepository
                 'source' => 'system',
                 'reason' => 'payment_expired',
             ],
+            'paid_at' => null,
             'failed_at' => now(),
+            'cancelled_at' => null,
+            'refunded_at' => null,
         ]);
     }
 
@@ -149,6 +157,8 @@ class PaymentRepository extends BaseRepository
             'wallet_transaction_id' => $walletTransactionId,
             'paid_at' => now(),
             'failed_at' => null,
+            'cancelled_at' => null,
+            'refunded_at' => null,
         ]);
     }
 

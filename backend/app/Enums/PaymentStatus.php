@@ -10,6 +10,20 @@ enum PaymentStatus: string
     case Cancelled = 'cancelled';
     case Refunded = 'refunded';
 
+    public function canTransitionTo(self $target): bool
+    {
+        return match ($this) {
+            self::Pending => in_array($target, [
+                self::Paid,
+                self::Failed,
+                self::Cancelled,
+            ], true),
+            self::Failed => $target === self::Paid,
+            self::Paid => $target === self::Refunded,
+            self::Cancelled, self::Refunded => false,
+        };
+    }
+
     public function label(): string
     {
         return match ($this) {

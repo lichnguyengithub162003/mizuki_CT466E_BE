@@ -107,5 +107,35 @@ test('creating the payment does not change order status', function (): void {
     );
 
     expect($payment->status)->toBe(PaymentStatus::Pending)
+        ->and($payment->paid_at)->toBeNull()
+        ->and($payment->failed_at)->toBeNull()
+        ->and($payment->cancelled_at)->toBeNull()
+        ->and($payment->refunded_at)->toBeNull()
+        ->and($context['order']->refresh()->status)->toBe(OrderStatus::Pending);
+});
+
+test('payment status transition matrix permits only supported lifecycle changes', function (): void {
+    expect(PaymentStatus::Pending->canTransitionTo(PaymentStatus::Paid))->toBeTrue()
+        ->and(PaymentStatus::Pending->canTransitionTo(PaymentStatus::Failed))->toBeTrue()
+        ->and(PaymentStatus::Failed->canTransitionTo(PaymentStatus::Paid))->toBeTrue()
+        ->and(PaymentStatus::Paid->canTransitionTo(PaymentStatus::Failed))->toBeFalse()
+        ->and(PaymentStatus::Paid->canTransitionTo(PaymentStatus::Pending))->toBeFalse()
+        ->and(PaymentStatus::Refunded->canTransitionTo(PaymentStatus::Paid))->toBeFalse()
+        ->and(PaymentStatus::Cancelled->canTransitionTo(PaymentStatus::Paid))->toBeFalse();
+});
+
+test('an initially paid internal payment has consistent timestamps without completing the order', function (): void {
+    $context = createPaymentCoreOrder();
+
+    $payment = app(PaymentService::class)->createForOrder(
+        $context['order'],
+        PaymentStatus::Paid,
+    );
+
+    expect($payment->status)->toBe(PaymentStatus::Paid)
+        ->and($payment->paid_at)->not->toBeNull()
+        ->and($payment->failed_at)->toBeNull()
+        ->and($payment->cancelled_at)->toBeNull()
+        ->and($payment->refunded_at)->toBeNull()
         ->and($context['order']->refresh()->status)->toBe(OrderStatus::Pending);
 });

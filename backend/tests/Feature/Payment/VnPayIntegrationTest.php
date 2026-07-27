@@ -234,6 +234,9 @@ test('successful IPN atomically marks payment paid and stores only sanitized pro
         ->and($payment->provider)->toBe('vnpay')
         ->and($payment->transaction_reference)->toBe('14567890')
         ->and($payment->paid_at)->not->toBeNull()
+        ->and($payment->failed_at)->toBeNull()
+        ->and($payment->cancelled_at)->toBeNull()
+        ->and($payment->refunded_at)->toBeNull()
         ->and($payment->provider_response)->toHaveKey('vnp_Amount')
         ->and($payment->provider_response)->not->toHaveKeys(['vnp_SecureHash', 'vnp_SecureHashType'])
         ->and($context['order']->refresh()->status)->toBe($originalOrderStatus);
@@ -257,13 +260,17 @@ test('failed IPN marks only pending payment failed and a later valid success may
     $this->getJson('/api/v1/payments/vnpay/ipn?'.vnpayQuery($failed))
         ->assertExactJson(['RspCode' => '00', 'Message' => 'Confirm Success']);
     expect($context['payment']->refresh()->status)->toBe(PaymentStatus::Failed)
-        ->and($context['payment']->failed_at)->not->toBeNull();
+        ->and($context['payment']->paid_at)->toBeNull()
+        ->and($context['payment']->failed_at)->not->toBeNull()
+        ->and($context['payment']->refunded_at)->toBeNull();
 
     $success = validVnPayCallback($context['payment']);
     $this->getJson('/api/v1/payments/vnpay/ipn?'.vnpayQuery($success))
         ->assertExactJson(['RspCode' => '00', 'Message' => 'Confirm Success']);
     expect($context['payment']->refresh()->status)->toBe(PaymentStatus::Paid)
-        ->and($context['payment']->failed_at)->toBeNull();
+        ->and($context['payment']->paid_at)->not->toBeNull()
+        ->and($context['payment']->failed_at)->toBeNull()
+        ->and($context['payment']->refunded_at)->toBeNull();
 });
 
 test('IPN is idempotent and never downgrades paid or reopens refunded payments', function (): void {
@@ -286,10 +293,16 @@ test('IPN is idempotent and never downgrades paid or reopens refunded payments',
     expect($paid['payment']->refresh()->status)->toBe(PaymentStatus::Paid);
 
     $refunded = createVnPayContext();
-    $refunded['payment']->update(['status' => PaymentStatus::Refunded]);
+    $refunded['payment']->update([
+        'status' => PaymentStatus::Refunded,
+        'refunded_at' => now(),
+    ]);
+    $refundedAt = $refunded['payment']->refresh()->refunded_at?->toISOString();
     $this->getJson('/api/v1/payments/vnpay/ipn?'.vnpayQuery(validVnPayCallback($refunded['payment'])))
         ->assertJsonPath('RspCode', '02');
-    expect($refunded['payment']->refresh()->status)->toBe(PaymentStatus::Refunded);
+    expect($refunded['payment']->refresh()->status)->toBe(PaymentStatus::Refunded)
+        ->and($refunded['payment']->refunded_at?->toISOString())->toBe($refundedAt)
+        ->and($refunded['payment']->paid_at)->toBeNull();
 });
 
 test('IPN rejects invalid signature amount payment method and duplicate gateway reference without writes', function (): void {

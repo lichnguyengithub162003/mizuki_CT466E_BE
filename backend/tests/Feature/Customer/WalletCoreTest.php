@@ -13,8 +13,10 @@ use App\Models\User;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use App\Services\PaymentService;
+use App\Services\WalletService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 uses(RefreshDatabase::class);
 
@@ -141,4 +143,33 @@ test('legacy post-checkout wallet payment endpoint is removed', function (): voi
     $this->actingAs($context['user'])
         ->postJson("/api/v1/customer/orders/{$context['order']->id}/payment/wallet")
         ->assertNotFound();
+});
+
+test('wallet payment cannot debit twice and always links a paid payment to its ledger', function (): void {
+    $context = createWalletCoreContext(balance: 500_000);
+    $service = app(WalletService::class);
+
+    $transaction = $service->completeCheckoutPayment(
+        $context['user'],
+        $context['order'],
+        $context['payment'],
+        $context['wallet'],
+    );
+
+    expect(fn () => $service->completeCheckoutPayment(
+        $context['user'],
+        $context['order'],
+        $context['payment'],
+        $context['wallet'],
+    ))->toThrow(ValidationException::class);
+
+    expect($context['wallet']->refresh()->balance)->toBe(300_000)
+        ->and($context['payment']->refresh()->status)->toBe(PaymentStatus::Paid)
+        ->and($context['payment']->paid_at)->not->toBeNull()
+        ->and($context['payment']->failed_at)->toBeNull()
+        ->and($context['payment']->refunded_at)->toBeNull()
+        ->and($context['payment']->wallet_transaction_id)->toBe($transaction->id)
+        ->and(WalletTransaction::query()
+            ->where('order_id', $context['order']->id)
+            ->count())->toBe(1);
 });

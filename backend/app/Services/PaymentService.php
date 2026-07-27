@@ -55,6 +55,9 @@ class PaymentService extends BaseService
                 'status' => $status,
                 'amount' => $lockedOrder->total_amount,
                 'paid_at' => $status === PaymentStatus::Paid ? now() : null,
+                'failed_at' => $status === PaymentStatus::Failed ? now() : null,
+                'cancelled_at' => $status === PaymentStatus::Cancelled ? now() : null,
+                'refunded_at' => $status === PaymentStatus::Refunded ? now() : null,
             ]);
         });
     }
@@ -137,6 +140,7 @@ class PaymentService extends BaseService
         $reportedStatus = match (true) {
             $payment->status === PaymentStatus::Paid => PaymentStatus::Paid->value,
             $payment->status === PaymentStatus::Refunded => PaymentStatus::Refunded->value,
+            $payment->order->status === OrderStatus::Cancelled => $payment->status->value,
             $this->vnpay->isSuccessful($params) => PaymentStatus::Paid->value,
             default => PaymentStatus::Failed->value,
         };
@@ -186,12 +190,11 @@ class PaymentService extends BaseService
                 }
 
                 $isSuccessful = $this->vnpay->isSuccessful($params);
+                $targetStatus = $isSuccessful
+                    ? PaymentStatus::Paid
+                    : PaymentStatus::Failed;
 
-                if (in_array($payment->status, [
-                    PaymentStatus::Paid,
-                    PaymentStatus::Cancelled,
-                    PaymentStatus::Refunded,
-                ], true)) {
+                if (! $payment->status->canTransitionTo($targetStatus)) {
                     return $this->ipnResponse('02', 'Order already confirmed');
                 }
 
@@ -214,10 +217,8 @@ class PaymentService extends BaseService
                         $transactionReference,
                         $providerResponse,
                     );
-                } elseif ($payment->status === PaymentStatus::Pending) {
-                    $this->payments->markVnPayFailed($payment, $providerResponse);
                 } else {
-                    return $this->ipnResponse('02', 'Order already confirmed');
+                    $this->payments->markVnPayFailed($payment, $providerResponse);
                 }
 
                 return $this->ipnResponse('00', 'Confirm Success');

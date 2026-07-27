@@ -4,9 +4,9 @@ use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
 use App\Enums\PaymentStatus;
 use App\Enums\UserRole;
-use App\Models\Brand;
 use App\Models\Branch;
 use App\Models\BranchInventory;
+use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Order;
 use App\Models\Payment;
@@ -153,7 +153,10 @@ test('payments at or beyond expiry cancel pending orders and release only reserv
 
     foreach ([$atBoundary, $overdue] as $context) {
         expect($context['payment']->refresh()->status)->toBe(PaymentStatus::Failed)
+            ->and($context['payment']->paid_at)->toBeNull()
             ->and($context['payment']->failed_at)->not->toBeNull()
+            ->and($context['payment']->cancelled_at)->toBeNull()
+            ->and($context['payment']->refunded_at)->toBeNull()
             ->and($context['order']->refresh()->status)->toBe(OrderStatus::Cancelled)
             ->and($context['order']->cancelled_at)->not->toBeNull()
             ->and($context['order']->cancellation_reason_type)->toBe('payment_expired')
@@ -247,6 +250,9 @@ test('successful VNPay IPN arriving after expiration cannot mark payment paid', 
 
     $this->getJson('/api/v1/payments/vnpay/ipn?'.http_build_query($params))
         ->assertExactJson(['RspCode' => '02', 'Message' => 'Order already confirmed']);
+    $this->getJson('/api/v1/payments/vnpay/return?'.http_build_query($params))
+        ->assertOk()
+        ->assertJsonPath('data.status', 'failed');
 
     expect($context['payment']->refresh()->status)->toBe(PaymentStatus::Failed)
         ->and($context['payment']->paid_at)->toBeNull()
