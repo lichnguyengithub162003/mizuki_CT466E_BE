@@ -181,6 +181,10 @@ class PaymentService extends BaseService
                     return $this->ipnResponse('04', 'Invalid amount');
                 }
 
+                if ($payment->order->status === OrderStatus::Cancelled) {
+                    return $this->ipnResponse('02', 'Order already confirmed');
+                }
+
                 $isSuccessful = $this->vnpay->isSuccessful($params);
 
                 if (in_array($payment->status, [

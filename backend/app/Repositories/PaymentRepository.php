@@ -2,10 +2,15 @@
 
 namespace App\Repositories;
 
+use App\Enums\OrderStatus;
+use App\Enums\PaymentMethod;
 use App\Enums\PaymentStatus;
 use App\Models\Order;
 use App\Models\Payment;
+use Carbon\CarbonInterface;
 use Closure;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /** @extends BaseRepository<Payment> */
@@ -89,6 +94,50 @@ class PaymentRepository extends BaseRepository
             'status' => PaymentStatus::Failed,
             'provider' => 'vnpay',
             'provider_response' => $providerResponse,
+            'failed_at' => now(),
+        ]);
+    }
+
+    /**
+     * @return Collection<int, int>
+     */
+    public function expiredPendingVnPayIds(CarbonInterface $cutoff, int $limit): Collection
+    {
+        return $this->query()
+            ->where('method', PaymentMethod::VNPay)
+            ->where('status', PaymentStatus::Pending)
+            ->where('created_at', '<=', $cutoff)
+            ->whereHas(
+                'order',
+                fn (Builder $query): Builder => $query->where('status', OrderStatus::Pending),
+            )
+            ->orderBy('id')
+            ->limit($limit)
+            ->pluck('id');
+    }
+
+    public function lockExpiredPendingVnPay(
+        int $paymentId,
+        CarbonInterface $cutoff,
+    ): ?Payment {
+        return $this->query()
+            ->whereKey($paymentId)
+            ->where('method', PaymentMethod::VNPay)
+            ->where('status', PaymentStatus::Pending)
+            ->where('created_at', '<=', $cutoff)
+            ->lockForUpdate()
+            ->first();
+    }
+
+    public function markVnPayExpired(Payment $payment): Payment
+    {
+        return $this->update($payment, [
+            'status' => PaymentStatus::Failed,
+            'provider' => 'vnpay',
+            'provider_response' => [
+                'source' => 'system',
+                'reason' => 'payment_expired',
+            ],
             'failed_at' => now(),
         ]);
     }

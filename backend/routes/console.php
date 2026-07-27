@@ -11,3 +11,7 @@ Artisan::command('inspire', function () {
 Schedule::command('refunds:auto-approve')
     ->hourly()
     ->withoutOverlapping();
+
+Schedule::command('payments:expire-vnpay')
+    ->everyMinute()
+    ->withoutOverlapping();
