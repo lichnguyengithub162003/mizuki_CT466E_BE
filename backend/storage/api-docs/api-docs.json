@@ -314,7 +314,8 @@
                             "enum": [
                                 "requested",
                                 "approved",
-                                "rejected"
+                                "rejected",
+                                "refunded"
                             ]
                         }
                     },
@@ -483,6 +484,42 @@
                     },
                     "422": {
                         "description": "Yêu cầu đã xử lý"
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/refunds/{id}/wallet-payout": {
+            "post": {
+                "tags": [
+                    "Admin Refunds"
+                ],
+                "summary": "Chi trả khoản hoàn tiền vào ví Mizuki",
+                "operationId": "adminRefundWalletPayout",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Chi trả vào ví thành công"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không có quyền"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy yêu cầu hoàn tiền"
+                    },
+                    "422": {
+                        "description": "Yêu cầu hoàn tiền chưa đủ điều kiện chi trả"
                     }
                 }
             }

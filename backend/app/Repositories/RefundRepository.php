@@ -4,8 +4,8 @@ namespace App\Repositories;
 
 use App\Enums\UserRole;
 use App\Models\Refund;
-use Closure;
 use Carbon\CarbonInterface;
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -39,7 +39,7 @@ class RefundRepository extends BaseRepository
     }
 
     /**
-     * @param array<string, mixed> $filters
+     * @param  array<string, mixed>  $filters
      * @return LengthAwarePaginator<int, Refund>
      */
     public function paginateForAdmin(
@@ -99,7 +99,7 @@ class RefundRepository extends BaseRepository
     ): ?Refund {
         return $this->adminScope($this->query(), $role, $branchId)
             ->whereKey($refundId)
-            ->with('order:id,branch_id')
+            ->with($this->adminRelations())
             ->lockForUpdate()
             ->first();
     }
@@ -170,6 +170,20 @@ class RefundRepository extends BaseRepository
         ])->save();
     }
 
+    public function markRefunded(
+        Refund $refund,
+        int $walletTransactionId,
+    ): Refund {
+        $refund->fill([
+            'status' => 'refunded',
+            'wallet_transaction_id' => $walletTransactionId,
+            'refunded_at' => now(),
+        ])->save();
+
+        return $this->findForAdmin($refund->id, UserRole::SuperAdmin, null)
+            ?? $refund->refresh();
+    }
+
     /** @return array<int, string> */
     private function adminRelations(): array
     {
@@ -178,11 +192,12 @@ class RefundRepository extends BaseRepository
             'order.branch:id,name',
             'user:id,name,email,phone',
             'reviewedBy:id,name',
+            'walletTransaction',
         ];
     }
 
     /**
-     * @param Builder<Refund> $query
+     * @param  Builder<Refund>  $query
      * @return Builder<Refund>
      */
     private function adminScope(Builder $query, UserRole $role, ?int $branchId): Builder

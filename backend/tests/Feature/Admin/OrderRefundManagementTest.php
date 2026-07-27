@@ -7,8 +7,12 @@ use App\Enums\UserRole;
 use App\Events\OrderStatusUpdated;
 use App\Models\Branch;
 use App\Models\Order;
+use App\Models\Payment;
 use App\Models\Refund;
 use App\Models\User;
+use App\Models\Wallet;
+use App\Models\WalletTransaction;
+use App\Repositories\WalletTransactionRepository;
 use App\Services\PaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
@@ -77,6 +81,7 @@ test('guest and customer cannot access admin order and refund endpoints', functi
         ['GET', '/api/v1/admin/refunds/1'],
         ['POST', '/api/v1/admin/refunds/1/approve'],
         ['POST', '/api/v1/admin/refunds/1/reject'],
+        ['POST', '/api/v1/admin/refunds/1/wallet-payout'],
     ];
 
     foreach ($paths as [$method, $path]) {
@@ -88,6 +93,157 @@ test('guest and customer cannot access admin order and refund endpoints', functi
     foreach ($paths as [$method, $path]) {
         $this->json($method, $path)->assertForbidden();
     }
+});
+
+test('super admin pays an approved refund into a lazily created wallet idempotently', function (): void {
+    $branch = createOrderAdminBranch('WP');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    $admin = User::factory()->create(['role' => UserRole::SuperAdmin]);
+    $order = createAdminManagedOrder($branch, $customer, OrderStatus::Delivered);
+    $originalOrderStatus = $order->status;
+    $refund = createAdminManagedRefund($order, $customer, 'approved');
+    $refund->update([
+        'approved_amount' => 275_000,
+        'reviewed_at' => now(),
+    ]);
+    $paymentCount = Payment::query()->count();
+    $this->actingAs($admin);
+
+    $firstPayoutResponse = $this->postJson("/api/v1/admin/refunds/{$refund->id}/wallet-payout")
+        ->assertOk()
+        ->assertJsonPath('success', true)
+        ->assertJsonPath('data.status', 'refunded')
+        ->assertJsonPath('data.order.id', $order->id)
+        ->assertJsonPath('data.order.order_number', $order->order_number)
+        ->assertJsonPath('data.order.status', $originalOrderStatus->value)
+        ->assertJsonPath('data.order.total_amount', $order->total_amount)
+        ->assertJsonPath('data.wallet_transaction.type', 'refund')
+        ->assertJsonPath('data.wallet_transaction.direction', 'credit')
+        ->assertJsonPath('data.wallet_transaction.amount', 275_000)
+        ->assertJsonPath('data.wallet_transaction.balance_after', 275_000)
+        ->assertJsonPath('data.wallet_transaction.reference', $refund->refund_number);
+
+    $wallet = Wallet::query()->where('user_id', $customer->id)->firstOrFail();
+    $refund->refresh();
+    $transaction = WalletTransaction::query()->findOrFail($refund->wallet_transaction_id);
+
+    expect($wallet->balance)->toBe(275_000)
+        ->and($refund->status)->toBe('refunded')
+        ->and($refund->refunded_at)->not->toBeNull()
+        ->and($transaction->wallet_id)->toBe($wallet->id)
+        ->and($transaction->order_id)->toBe($order->id)
+        ->and($transaction->created_by_user_id)->toBe($admin->id)
+        ->and($transaction->reference)->toBe($refund->refund_number)
+        ->and($transaction->description)->toContain($order->order_number)
+        ->and($order->refresh()->status)->toBe($originalOrderStatus)
+        ->and(Payment::query()->count())->toBe($paymentCount);
+
+    $this->postJson("/api/v1/admin/refunds/{$refund->id}/wallet-payout")
+        ->assertOk()
+        ->assertJsonPath('data.order', $firstPayoutResponse->json('data.order'))
+        ->assertJsonPath('data.wallet_transaction.id', $transaction->id);
+
+    expect($wallet->refresh()->balance)->toBe(275_000)
+        ->and(WalletTransaction::query()->where('reference', $refund->refund_number)->count())->toBe(1);
+});
+
+test('branch manager can payout only refunds from their own branch', function (): void {
+    $ownBranch = createOrderAdminBranch('WO');
+    $otherBranch = createOrderAdminBranch('WX');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    $manager = User::factory()->create([
+        'role' => UserRole::BranchManager,
+        'branch_id' => $ownBranch->id,
+    ]);
+    $ownRefund = createAdminManagedRefund(
+        createAdminManagedOrder($ownBranch, $customer, OrderStatus::Delivered),
+        $customer,
+        'approved',
+    );
+    $ownRefund->update(['approved_amount' => 100_000]);
+    $otherRefund = createAdminManagedRefund(
+        createAdminManagedOrder($otherBranch, $customer, OrderStatus::Delivered),
+        $customer,
+        'approved',
+    );
+    $otherRefund->update(['approved_amount' => 50_000]);
+    $this->actingAs($manager);
+
+    $this->postJson("/api/v1/admin/refunds/{$ownRefund->id}/wallet-payout")
+        ->assertOk()
+        ->assertJsonPath('data.status', 'refunded');
+
+    $this->postJson("/api/v1/admin/refunds/{$otherRefund->id}/wallet-payout")
+        ->assertNotFound();
+
+    expect($otherRefund->refresh()->status)->toBe('approved')
+        ->and($otherRefund->wallet_transaction_id)->toBeNull();
+});
+
+test('requested and rejected refunds cannot be paid into a wallet', function (string $status): void {
+    $branch = createOrderAdminBranch('WS');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    $refund = createAdminManagedRefund(
+        createAdminManagedOrder($branch, $customer, OrderStatus::Delivered),
+        $customer,
+        $status,
+    );
+    $refund->update(['approved_amount' => $status === 'rejected' ? null : 100_000]);
+    $this->actingAs(User::factory()->create(['role' => UserRole::SuperAdmin]));
+
+    $this->postJson("/api/v1/admin/refunds/{$refund->id}/wallet-payout")
+        ->assertUnprocessable()
+        ->assertJsonPath(
+            'data.errors.status.0',
+            'Chỉ yêu cầu hoàn tiền đã duyệt mới có thể chi trả vào ví',
+        );
+
+    $this->assertDatabaseMissing('wallet_transactions', ['order_id' => $refund->order_id]);
+})->with(['requested', 'rejected']);
+
+test('approved refund requires a positive approved amount before wallet payout', function (?int $amount): void {
+    $branch = createOrderAdminBranch('WA');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    $refund = createAdminManagedRefund(
+        createAdminManagedOrder($branch, $customer, OrderStatus::Delivered),
+        $customer,
+        'approved',
+    );
+    $refund->update(['approved_amount' => $amount]);
+    $this->actingAs(User::factory()->create(['role' => UserRole::SuperAdmin]));
+
+    $this->postJson("/api/v1/admin/refunds/{$refund->id}/wallet-payout")
+        ->assertUnprocessable()
+        ->assertJsonPath('data.errors.approved_amount.0', 'Số tiền được duyệt phải lớn hơn 0');
+
+    $this->assertDatabaseMissing('wallet_transactions', ['order_id' => $refund->order_id]);
+})->with([null, 0]);
+
+test('wallet payout rolls back the balance when ledger creation fails', function (): void {
+    $branch = createOrderAdminBranch('WR');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    $wallet = Wallet::query()->create(['user_id' => $customer->id, 'balance' => 25_000]);
+    $refund = createAdminManagedRefund(
+        createAdminManagedOrder($branch, $customer, OrderStatus::Delivered),
+        $customer,
+        'approved',
+    );
+    $refund->update(['approved_amount' => 125_000]);
+    $this->mock(WalletTransactionRepository::class)
+        ->shouldReceive('createTransaction')
+        ->once()
+        ->andThrow(new RuntimeException('Simulated ledger failure'));
+    $this->actingAs(User::factory()->create(['role' => UserRole::SuperAdmin]));
+    $this->withoutExceptionHandling();
+
+    expect(fn () => $this->postJson("/api/v1/admin/refunds/{$refund->id}/wallet-payout"))
+        ->toThrow(RuntimeException::class, 'Simulated ledger failure');
+
+    expect($wallet->refresh()->balance)->toBe(25_000)
+        ->and($refund->refresh()->status)->toBe('approved')
+        ->and($refund->wallet_transaction_id)->toBeNull()
+        ->and($refund->refunded_at)->toBeNull();
+    $this->assertDatabaseMissing('wallet_transactions', ['order_id' => $refund->order_id]);
 });
 
 test('super admin sees all branches and can filter orders by status and keyword', function (): void {

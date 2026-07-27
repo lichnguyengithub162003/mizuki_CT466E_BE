@@ -144,6 +144,7 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
                 Route::get('/', [AdminRefundController::class, 'index'])->name('index');
                 Route::post('{id}/approve', [AdminRefundController::class, 'approve'])->name('approve');
                 Route::post('{id}/reject', [AdminRefundController::class, 'reject'])->name('reject');
+                Route::post('{id}/wallet-payout', [AdminRefundController::class, 'walletPayout'])->name('wallet-payout');
                 Route::get('{id}', [AdminRefundController::class, 'show'])->name('show');
             });
     });

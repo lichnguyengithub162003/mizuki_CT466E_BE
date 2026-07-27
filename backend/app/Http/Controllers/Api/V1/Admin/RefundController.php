@@ -16,8 +16,7 @@ class RefundController extends BaseController
 {
     public function __construct(
         private readonly RefundService $refunds,
-    ) {
-    }
+    ) {}
 
     /**
      * @OA\Get(
@@ -25,11 +24,13 @@ class RefundController extends BaseController
      *     operationId="adminListRefunds",
      *     tags={"Admin Refunds"},
      *     summary="Danh sách yêu cầu hoàn tiền",
-     *     @OA\Parameter(name="status", in="query", @OA\Schema(type="string", enum={"requested", "approved", "rejected"})),
+     *
+     *     @OA\Parameter(name="status", in="query", @OA\Schema(type="string", enum={"requested", "approved", "rejected", "refunded"})),
      *     @OA\Parameter(name="branch_id", in="query", @OA\Schema(type="integer")),
      *     @OA\Parameter(name="keyword", in="query", @OA\Schema(type="string")),
      *     @OA\Parameter(name="page", in="query", @OA\Schema(type="integer", minimum=1)),
      *     @OA\Parameter(name="per_page", in="query", @OA\Schema(type="integer", minimum=1, maximum=100)),
+     *
      *     @OA\Response(response=200, description="Danh sách yêu cầu hoàn tiền"),
      *     @OA\Response(response=401, description="Chưa đăng nhập"),
      *     @OA\Response(response=403, description="Không có quyền")
@@ -53,7 +54,9 @@ class RefundController extends BaseController
      *     operationId="adminShowRefund",
      *     tags={"Admin Refunds"},
      *     summary="Chi tiết yêu cầu hoàn tiền",
+     *
      *     @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *
      *     @OA\Response(response=200, description="Chi tiết yêu cầu hoàn tiền"),
      *     @OA\Response(response=404, description="Không tìm thấy yêu cầu hoàn tiền")
      * )
@@ -79,11 +82,15 @@ class RefundController extends BaseController
      *     operationId="adminApproveRefund",
      *     tags={"Admin Refunds"},
      *     summary="Duyệt yêu cầu hoàn tiền",
+     *
      *     @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *
      *     @OA\RequestBody(@OA\JsonContent(
+     *
      *         @OA\Property(property="approved_amount", type="integer", minimum=1),
      *         @OA\Property(property="review_note", type="string", nullable=true)
      *     )),
+     *
      *     @OA\Response(response=200, description="Đã duyệt yêu cầu hoàn tiền"),
      *     @OA\Response(response=404, description="Không tìm thấy yêu cầu hoàn tiền"),
      *     @OA\Response(response=422, description="Yêu cầu đã xử lý hoặc số tiền không hợp lệ")
@@ -110,11 +117,15 @@ class RefundController extends BaseController
      *     operationId="adminRejectRefund",
      *     tags={"Admin Refunds"},
      *     summary="Từ chối yêu cầu hoàn tiền",
+     *
      *     @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *
      *     @OA\RequestBody(required=true, @OA\JsonContent(
      *         required={"review_note"},
+     *
      *         @OA\Property(property="review_note", type="string")
      *     )),
+     *
      *     @OA\Response(response=200, description="Đã từ chối yêu cầu hoàn tiền"),
      *     @OA\Response(response=404, description="Không tìm thấy yêu cầu hoàn tiền"),
      *     @OA\Response(response=422, description="Yêu cầu đã xử lý")
@@ -132,6 +143,37 @@ class RefundController extends BaseController
             request: $request,
             resource: new RefundResource($refund),
             message: 'Từ chối yêu cầu hoàn tiền thành công!',
+        );
+    }
+
+    /**
+     * @OA\Post(
+     *     path="/api/v1/admin/refunds/{id}/wallet-payout",
+     *     operationId="adminRefundWalletPayout",
+     *     tags={"Admin Refunds"},
+     *     summary="Chi trả khoản hoàn tiền vào ví Mizuki",
+     *
+     *     @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *
+     *     @OA\Response(response=200, description="Chi trả vào ví thành công"),
+     *     @OA\Response(response=401, description="Chưa đăng nhập"),
+     *     @OA\Response(response=403, description="Không có quyền"),
+     *     @OA\Response(response=404, description="Không tìm thấy yêu cầu hoàn tiền"),
+     *     @OA\Response(response=422, description="Yêu cầu hoàn tiền chưa đủ điều kiện chi trả")
+     * )
+     */
+    public function walletPayout(Request $request, int $id): JsonResponse
+    {
+        $refund = $this->refunds->payoutToWallet($request->user(), $id);
+
+        if ($refund === null) {
+            return $this->refundNotFound();
+        }
+
+        return $this->successResponse(
+            request: $request,
+            resource: new RefundResource($refund),
+            message: 'Chi trả hoàn tiền vào ví thành công!',
         );
     }
 

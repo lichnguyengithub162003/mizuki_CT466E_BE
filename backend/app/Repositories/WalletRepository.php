@@ -58,12 +58,25 @@ class WalletRepository extends BaseRepository
             return $wallet;
         }
 
-        return $this->findOrCreateForUser($userId);
+        $this->findOrCreateForUser($userId);
+
+        return $this->query()
+            ->where('user_id', $userId)
+            ->lockForUpdate()
+            ->firstOrFail();
     }
 
     public function debit(Wallet $wallet, int $amount): Wallet
     {
         $wallet->balance -= $amount;
+        $wallet->save();
+
+        return $wallet->refresh();
+    }
+
+    public function credit(Wallet $wallet, int $amount): Wallet
+    {
+        $wallet->balance += $amount;
         $wallet->save();
 
         return $wallet->refresh();
