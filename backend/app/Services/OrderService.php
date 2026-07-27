@@ -2,11 +2,12 @@
 
 namespace App\Services;
 
+use App\Enums\OrderRequestReason;
 use App\Enums\OrderStatus;
+use App\Enums\PaymentMethod;
 use App\Enums\PaymentStatus;
 use App\Events\OrderPlaced;
 use App\Events\OrderStatusUpdated;
-use App\Enums\OrderRequestReason;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\Order;
@@ -30,8 +31,8 @@ class OrderService extends BaseService
         private readonly CartService $cartService,
         private readonly PromotionService $promotionService,
         private readonly PaymentService $paymentService,
-    ) {
-    }
+        private readonly WalletService $walletService,
+    ) {}
 
     /** @param array{delivery_method: string, address_id?: int|null, payment_method: string} $data */
     public function checkout(User $user, array $data): Order
@@ -58,7 +59,9 @@ class OrderService extends BaseService
                     $promotion,
                     (int) $cart->total_before_discount,
                 );
+            $totalAmount = (int) $cart->total_before_discount - $discountAmount;
             $itemSnapshots = [];
+            $inventoryReservations = [];
 
             foreach ($cart->items as $item) {
                 $inventory = $this->orders->lockInventory($cart->branch_id, $item->product_variant_id);
@@ -74,7 +77,21 @@ class OrderService extends BaseService
                 }
 
                 $itemSnapshots[] = $this->snapshotItem($item);
-                $this->orders->reserveInventory($inventory, $item->quantity);
+                $inventoryReservations[] = [
+                    'inventory' => $inventory,
+                    'quantity' => $item->quantity,
+                ];
+            }
+
+            $wallet = $data['payment_method'] === PaymentMethod::Wallet->value
+                ? $this->walletService->lockForCheckout($user, $totalAmount)
+                : null;
+
+            foreach ($inventoryReservations as $reservation) {
+                $this->orders->reserveInventory(
+                    $reservation['inventory'],
+                    $reservation['quantity'],
+                );
             }
 
             $order = $this->orders->createOrder([
@@ -97,17 +114,26 @@ class OrderService extends BaseService
                 'subtotal' => (int) $cart->total_before_discount,
                 'discount_amount' => $discountAmount,
                 'shipping_fee' => 0,
-                'total_amount' => (int) $cart->total_before_discount - $discountAmount,
+                'total_amount' => $totalAmount,
                 'placed_at' => now(),
             ]);
 
             $this->orders->createItems($order, $itemSnapshots);
+            $payment = $this->paymentService->createForOrder($order, PaymentStatus::Pending);
+
+            if ($wallet !== null) {
+                $this->walletService->completeCheckoutPayment(
+                    user: $user,
+                    order: $order,
+                    payment: $payment,
+                    wallet: $wallet,
+                );
+            }
 
             if ($promotion !== null) {
                 $this->promotions->recordUsage($promotion, $user, $order, $discountAmount);
             }
 
-            $this->paymentService->createForOrder($order, PaymentStatus::Pending);
             $this->carts->clearAfterCheckout($cart);
 
             return $this->orders->loadDetails($order);
@@ -119,7 +145,7 @@ class OrderService extends BaseService
     }
 
     /**
-     * @param array<string, mixed> $filters
+     * @param  array<string, mixed>  $filters
      * @return LengthAwarePaginator<int, Order>
      */
     public function paginate(User $user, array $filters): LengthAwarePaginator

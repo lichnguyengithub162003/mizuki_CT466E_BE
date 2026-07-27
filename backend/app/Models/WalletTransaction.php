@@ -2,7 +2,10 @@
 
 namespace App\Models;
 
+use App\Enums\WalletTransactionDirection;
+use App\Enums\WalletTransactionType;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -29,6 +32,8 @@ class WalletTransaction extends Model
     protected function casts(): array
     {
         return [
+            'type' => WalletTransactionType::class,
+            'direction' => WalletTransactionDirection::class,
             'amount' => 'integer',
             'balance_after' => 'integer',
             'created_at' => 'datetime',
@@ -73,5 +78,20 @@ class WalletTransaction extends Model
     public function refund(): HasOne
     {
         return $this->hasOne(Refund::class);
+    }
+
+    /**
+     * Wallet transactions are an immutable financial ledger.
+     *
+     * @param  Builder<WalletTransaction>  $query
+     */
+    protected function performUpdate(Builder $query): bool
+    {
+        throw new \LogicException('Không thể cập nhật giao dịch ví đã ghi nhận');
+    }
+
+    protected function performDeleteOnModel(): void
+    {
+        throw new \LogicException('Không thể xóa giao dịch ví đã ghi nhận');
     }
 }

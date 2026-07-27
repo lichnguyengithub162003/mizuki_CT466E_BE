@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\V1\Customer\FavoriteController;
 use App\Http\Controllers\Api\V1\Customer\OrderController;
 use App\Http\Controllers\Api\V1\Customer\OrderPaymentController;
 use App\Http\Controllers\Api\V1\Customer\ProfileController;
+use App\Http\Controllers\Api\V1\Customer\WalletController;
 use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\Payment\VnPayController;
 use Illuminate\Support\Facades\Route;
@@ -59,6 +60,12 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
         Route::patch('profile', [ProfileController::class, 'update'])->name('profile.update');
         Route::post('profile/avatar', [ProfileController::class, 'uploadAvatar'])->name('profile.avatar');
         Route::patch('profile/change-password', [ProfileController::class, 'changePassword'])->name('profile.change-password');
+
+        // Wallet
+        Route::prefix('wallet')->name('wallet.')->middleware('role:customer')->group(function (): void {
+            Route::get('/', [WalletController::class, 'show'])->name('show');
+            Route::get('transactions', [WalletController::class, 'transactions'])->name('transactions');
+        });
 
         // Addresses
         Route::get('addresses', [ProfileController::class, 'indexAddress'])->name('addresses.index');

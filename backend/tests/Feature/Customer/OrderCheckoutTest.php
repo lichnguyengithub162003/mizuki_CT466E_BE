@@ -2,25 +2,28 @@
 
 use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
-use App\Services\PaymentService;
 use App\Enums\UserRole;
 use App\Events\OrderPlaced;
-use App\Models\Brand;
 use App\Models\Branch;
 use App\Models\BranchInventory;
+use App\Models\Brand;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\Category;
 use App\Models\Order;
+use App\Models\Payment;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Promotion;
 use App\Models\PromotionUsage;
 use App\Models\User;
 use App\Models\UserAddress;
+use App\Models\Wallet;
+use App\Models\WalletTransaction;
+use App\Services\PaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Str;
 
 uses(RefreshDatabase::class);
 
@@ -200,7 +203,7 @@ test('checkout with a promotion records real usage and increments the cached cou
 
     $response = $this->postJson('/api/v1/customer/orders', [
         'delivery_method' => 'pickup',
-        'payment_method' => 'wallet',
+        'payment_method' => 'cash',
     ])
         ->assertCreated()
         ->assertJsonPath('data.applied_promotion.code', 'ORDER10')
@@ -211,7 +214,7 @@ test('checkout with a promotion records real usage and increments the cached cou
     $this->assertDatabaseHas('payments', [
         'order_id' => $response->json('data.id'),
         'user_id' => $context['user']->id,
-        'method' => 'wallet',
+        'method' => 'cash',
         'status' => 'pending',
         'amount' => 270_000,
     ]);
@@ -221,6 +224,114 @@ test('checkout with a promotion records real usage and increments the cached cou
         'order_id' => $response->json('data.id'),
         'discount_amount' => 30_000,
     ]);
+});
+
+test('wallet checkout creates and pays the order atomically when balance is sufficient', function (): void {
+    $context = createOrderCheckoutContext();
+    $wallet = Wallet::query()->create([
+        'user_id' => $context['user']->id,
+        'balance' => 500_000,
+    ]);
+    $this->actingAs($context['user']);
+
+    $response = $this->postJson('/api/v1/customer/orders', [
+        'delivery_method' => 'pickup',
+        'payment_method' => 'wallet',
+    ])
+        ->assertCreated()
+        ->assertJsonPath('data.status', 'pending')
+        ->assertJsonPath('data.payment_method', 'wallet')
+        ->assertJsonPath('data.total_amount', 300_000);
+
+    $orderId = $response->json('data.id');
+    $payment = Payment::query()->where('order_id', $orderId)->sole();
+    $transaction = WalletTransaction::query()->sole();
+
+    expect($wallet->refresh()->balance)->toBe(200_000)
+        ->and($payment->status->value)->toBe('paid')
+        ->and($payment->paid_at)->not->toBeNull()
+        ->and($payment->wallet_transaction_id)->toBe($transaction->id)
+        ->and($transaction->type->value)->toBe('order_payment')
+        ->and($transaction->direction->value)->toBe('debit')
+        ->and($transaction->amount)->toBe(300_000)
+        ->and($transaction->balance_after)->toBe(200_000)
+        ->and($transaction->order_id)->toBe($orderId)
+        ->and($transaction->reference)->toBe($payment->payment_number)
+        ->and($transaction->created_by_user_id)->toBe($context['user']->id)
+        ->and(Order::query()->findOrFail($orderId)->status)->toBe(OrderStatus::Pending)
+        ->and($context['inventory']->refresh()->reserved_quantity)->toBe(3);
+
+    $this->assertDatabaseCount('cart_items', 0);
+});
+
+test('wallet checkout with insufficient balance rolls back every checkout write', function (): void {
+    $context = createOrderCheckoutContext();
+    $wallet = Wallet::query()->create([
+        'user_id' => $context['user']->id,
+        'balance' => 100_000,
+    ]);
+    $promotion = Promotion::query()->create([
+        'code' => 'WALLETFAIL',
+        'name' => 'Wallet insufficient',
+        'discount_type' => 'percentage',
+        'discount_value' => 10,
+        'max_discount_amount' => 100_000,
+        'minimum_order_amount' => 100_000,
+        'usage_limit' => 100,
+        'usage_count' => 0,
+        'per_user_limit' => 1,
+        'applies_to' => 'order',
+        'starts_at' => now()->subDay(),
+        'ends_at' => now()->addDay(),
+        'is_active' => true,
+    ]);
+    $promotion->branches()->attach($context['branch']->id);
+    $context['cart']->update(['promotion_id' => $promotion->id]);
+    $this->actingAs($context['user']);
+
+    $this->postJson('/api/v1/customer/orders', [
+        'delivery_method' => 'pickup',
+        'payment_method' => 'wallet',
+    ])
+        ->assertUnprocessable()
+        ->assertJsonPath(
+            'data.errors.balance.0',
+            'Số tiền trong ví không đủ để thanh toán đơn hàng này!',
+        );
+
+    $this->assertDatabaseCount('orders', 0);
+    $this->assertDatabaseCount('payments', 0);
+    $this->assertDatabaseCount('wallet_transactions', 0);
+    $this->assertDatabaseCount('promotion_usages', 0);
+    $this->assertDatabaseCount('cart_items', 1);
+    expect($wallet->refresh()->balance)->toBe(100_000)
+        ->and($context['inventory']->refresh()->reserved_quantity)->toBe(1)
+        ->and($promotion->refresh()->usage_count)->toBe(0)
+        ->and($context['cart']->refresh()->promotion_id)->toBe($promotion->id);
+});
+
+test('repeating wallet checkout from the same cleared cart creates no duplicate', function (): void {
+    $context = createOrderCheckoutContext();
+    $wallet = Wallet::query()->create([
+        'user_id' => $context['user']->id,
+        'balance' => 700_000,
+    ]);
+    $this->actingAs($context['user']);
+    $payload = [
+        'delivery_method' => 'pickup',
+        'payment_method' => 'wallet',
+    ];
+
+    $this->postJson('/api/v1/customer/orders', $payload)->assertCreated();
+    $this->postJson('/api/v1/customer/orders', $payload)
+        ->assertUnprocessable()
+        ->assertJsonPath('data.errors.cart.0', 'Giỏ hàng đang trống');
+
+    expect($wallet->refresh()->balance)->toBe(400_000)
+        ->and($context['inventory']->refresh()->reserved_quantity)->toBe(3);
+    $this->assertDatabaseCount('orders', 1);
+    $this->assertDatabaseCount('payments', 1);
+    $this->assertDatabaseCount('wallet_transactions', 1);
 });
 
 test('checkout rejects an empty cart with a clear error', function (): void {

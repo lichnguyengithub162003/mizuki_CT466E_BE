@@ -93,6 +93,16 @@ class PaymentRepository extends BaseRepository
         ]);
     }
 
+    public function markWalletPaid(Payment $payment, int $walletTransactionId): Payment
+    {
+        return $this->update($payment, [
+            'status' => PaymentStatus::Paid,
+            'wallet_transaction_id' => $walletTransactionId,
+            'paid_at' => now(),
+            'failed_at' => null,
+        ]);
+    }
+
     /** @param array<string, mixed> $attributes */
     public function createPayment(array $attributes): Payment
     {

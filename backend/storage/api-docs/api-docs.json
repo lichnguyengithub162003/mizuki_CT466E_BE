@@ -1812,6 +1812,68 @@
                 }
             }
         },
+        "/api/v1/customer/wallet": {
+            "get": {
+                "tags": [
+                    "Customer Wallet"
+                ],
+                "summary": "Xem số dư ví",
+                "operationId": "customerShowWallet",
+                "responses": {
+                    "200": {
+                        "description": "Thông tin ví"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không phải khách hàng"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/customer/wallet/transactions": {
+            "get": {
+                "tags": [
+                    "Customer Wallet"
+                ],
+                "summary": "Xem lịch sử giao dịch ví",
+                "operationId": "customerWalletTransactions",
+                "parameters": [
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Lịch sử giao dịch ví"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không phải khách hàng"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
         "/api/v1/customer/orders/{id}/payment/vnpay": {
             "post": {
                 "tags": [
@@ -1917,6 +1979,10 @@
         {
             "name": "Customer Orders",
             "description": "Customer Orders"
+        },
+        {
+            "name": "Customer Wallet",
+            "description": "Customer Wallet"
         },
         {
             "name": "Customer Payments",
