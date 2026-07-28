@@ -6,6 +6,305 @@
         "version": "1.0.0"
     },
     "paths": {
+        "/api/v1/admin/appointments": {
+            "get": {
+                "tags": [
+                    "Admin Appointments"
+                ],
+                "summary": "Danh sách lịch hẹn theo phạm vi chi nhánh",
+                "operationId": "adminListAppointments",
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "branch_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "technician_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "appointment_date",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "keyword",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Danh sách lịch hẹn"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không có quyền"
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/appointments/{id}": {
+            "get": {
+                "tags": [
+                    "Admin Appointments"
+                ],
+                "summary": "Chi tiết lịch hẹn",
+                "operationId": "adminShowAppointment",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Chi tiết lịch hẹn"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy lịch hẹn"
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/appointments/walk-in": {
+            "post": {
+                "tags": [
+                    "Admin Appointments"
+                ],
+                "summary": "Tạo lịch hẹn walk-in",
+                "operationId": "adminCreateWalkInAppointment",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "branch_id",
+                                    "service_id",
+                                    "appointment_date",
+                                    "start_time"
+                                ],
+                                "properties": {
+                                    "branch_id": {
+                                        "type": "integer"
+                                    },
+                                    "service_id": {
+                                        "type": "integer"
+                                    },
+                                    "appointment_date": {
+                                        "type": "string",
+                                        "format": "date"
+                                    },
+                                    "start_time": {
+                                        "type": "string",
+                                        "example": "09:00"
+                                    },
+                                    "customer_id": {
+                                        "type": "integer",
+                                        "nullable": true
+                                    },
+                                    "customer_name": {
+                                        "type": "string",
+                                        "nullable": true
+                                    },
+                                    "customer_phone": {
+                                        "type": "string",
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Đã tạo lịch walk-in"
+                    },
+                    "422": {
+                        "description": "Dữ liệu hoặc slot không hợp lệ"
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/appointments/{id}/confirm": {
+            "post": {
+                "tags": [
+                    "Admin Appointments"
+                ],
+                "summary": "Xác nhận lịch hẹn",
+                "operationId": "adminConfirmAppointment",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Đã xác nhận"
+                    },
+                    "422": {
+                        "description": "Trạng thái không hợp lệ"
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/appointments/{id}/assign-technician": {
+            "post": {
+                "tags": [
+                    "Admin Appointments"
+                ],
+                "summary": "Phân công kỹ thuật viên",
+                "operationId": "adminAssignAppointmentTechnician",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "technician_id"
+                                ],
+                                "properties": {
+                                    "technician_id": {
+                                        "type": "integer"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Đã phân công"
+                    },
+                    "422": {
+                        "description": "Kỹ thuật viên không hợp lệ"
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/appointments/{id}/start": {
+            "post": {
+                "tags": [
+                    "Admin Appointments"
+                ],
+                "summary": "Bắt đầu thực hiện lịch hẹn",
+                "operationId": "adminStartAppointment",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Đã bắt đầu"
+                    },
+                    "422": {
+                        "description": "Trạng thái không hợp lệ"
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/appointments/{id}/complete": {
+            "post": {
+                "tags": [
+                    "Admin Appointments"
+                ],
+                "summary": "Hoàn thành lịch hẹn",
+                "operationId": "adminCompleteAppointment",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Đã hoàn thành"
+                    },
+                    "422": {
+                        "description": "Trạng thái không hợp lệ"
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/appointments/{id}/cancel": {
+            "post": {
+                "tags": [
+                    "Admin Appointments"
+                ],
+                "summary": "Hủy lịch hẹn",
+                "operationId": "adminCancelAppointment",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Đã hủy"
+                    },
+                    "422": {
+                        "description": "Trạng thái không hợp lệ"
+                    }
+                }
+            }
+        },
         "/api/v1/admin/orders": {
             "get": {
                 "tags": [
@@ -2485,9 +2784,111 @@
                     }
                 }
             }
+        },
+        "/api/v1/technician/appointments": {
+            "get": {
+                "tags": [
+                    "Technician Appointments"
+                ],
+                "summary": "Danh sách lịch hẹn được phân công",
+                "operationId": "technicianListAppointments",
+                "responses": {
+                    "200": {
+                        "description": "Danh sách lịch hẹn"
+                    },
+                    "403": {
+                        "description": "Không có quyền"
+                    }
+                }
+            }
+        },
+        "/api/v1/technician/appointments/{id}": {
+            "get": {
+                "tags": [
+                    "Technician Appointments"
+                ],
+                "summary": "Chi tiết lịch hẹn được phân công",
+                "operationId": "technicianShowAppointment",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Chi tiết lịch hẹn"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy"
+                    }
+                }
+            }
+        },
+        "/api/v1/technician/appointments/{id}/start": {
+            "post": {
+                "tags": [
+                    "Technician Appointments"
+                ],
+                "summary": "Bắt đầu lịch hẹn được phân công",
+                "operationId": "technicianStartAppointment",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Đã bắt đầu"
+                    },
+                    "422": {
+                        "description": "Trạng thái không hợp lệ"
+                    }
+                }
+            }
+        },
+        "/api/v1/technician/appointments/{id}/complete": {
+            "post": {
+                "tags": [
+                    "Technician Appointments"
+                ],
+                "summary": "Hoàn thành lịch hẹn được phân công",
+                "operationId": "technicianCompleteAppointment",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Đã hoàn thành"
+                    },
+                    "422": {
+                        "description": "Trạng thái không hợp lệ"
+                    }
+                }
+            }
         }
     },
     "tags": [
+        {
+            "name": "Admin Appointments",
+            "description": "Admin Appointments"
+        },
         {
             "name": "Admin Orders",
             "description": "Admin Orders"
@@ -2539,6 +2940,10 @@
         {
             "name": "Payments",
             "description": "Payments"
+        },
+        {
+            "name": "Technician Appointments",
+            "description": "Technician Appointments"
         }
     ]
 }

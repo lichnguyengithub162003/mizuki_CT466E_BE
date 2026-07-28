@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Admin\AppointmentController as AdminAppointmentController;
 use App\Http\Controllers\Api\V1\Admin\OrderController as AdminOrderController;
 use App\Http\Controllers\Api\V1\Admin\PromotionController as AdminPromotionController;
 use App\Http\Controllers\Api\V1\Admin\RefundController as AdminRefundController;
@@ -20,6 +21,7 @@ use App\Http\Controllers\Api\V1\Customer\ProfileController;
 use App\Http\Controllers\Api\V1\Customer\WalletController;
 use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\Payment\VnPayController;
+use App\Http\Controllers\Api\V1\Technician\AppointmentController as TechnicianAppointmentController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->name('api.v1.')->group(function (): void {
@@ -159,7 +161,31 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
                 Route::post('{id}/wallet-payout', [AdminRefundController::class, 'walletPayout'])->name('wallet-payout');
                 Route::get('{id}', [AdminRefundController::class, 'show'])->name('show');
             });
+
+        Route::prefix('appointments')
+            ->name('appointments.')
+            ->middleware('role:branch_manager,super_admin')
+            ->group(function (): void {
+                Route::get('/', [AdminAppointmentController::class, 'index'])->name('index');
+                Route::post('walk-in', [AdminAppointmentController::class, 'walkIn'])->name('walk-in');
+                Route::post('{id}/confirm', [AdminAppointmentController::class, 'confirm'])->name('confirm');
+                Route::post('{id}/assign-technician', [AdminAppointmentController::class, 'assignTechnician'])->name('assign-technician');
+                Route::post('{id}/start', [AdminAppointmentController::class, 'start'])->name('start');
+                Route::post('{id}/complete', [AdminAppointmentController::class, 'complete'])->name('complete');
+                Route::post('{id}/cancel', [AdminAppointmentController::class, 'cancel'])->name('cancel');
+                Route::get('{id}', [AdminAppointmentController::class, 'show'])->name('show');
+            });
     });
+
+    Route::prefix('technician/appointments')
+        ->name('technician.appointments.')
+        ->middleware(['auth:sanctum', 'role:technician'])
+        ->group(function (): void {
+            Route::get('/', [TechnicianAppointmentController::class, 'index'])->name('index');
+            Route::post('{id}/start', [TechnicianAppointmentController::class, 'start'])->name('start');
+            Route::post('{id}/complete', [TechnicianAppointmentController::class, 'complete'])->name('complete');
+            Route::get('{id}', [TechnicianAppointmentController::class, 'show'])->name('show');
+        });
 
     // Cashier POS routes
     Route::prefix('cashier/pos')
