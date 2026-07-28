@@ -1240,6 +1240,346 @@
                 }
             }
         },
+        "/api/v1/clinics": {
+            "get": {
+                "tags": [
+                    "Clinics"
+                ],
+                "summary": "List active clinic branches",
+                "operationId": "listPublicClinics",
+                "responses": {
+                    "200": {
+                        "description": "Active clinic and hybrid branches",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "properties": {
+                                                    "id": {
+                                                        "type": "integer",
+                                                        "example": 2
+                                                    },
+                                                    "name": {
+                                                        "type": "string",
+                                                        "example": "Mizuki Clinic Can Tho"
+                                                    },
+                                                    "code": {
+                                                        "type": "string",
+                                                        "example": "DEV-CLINIC-CT"
+                                                    },
+                                                    "phone": {
+                                                        "type": "string",
+                                                        "example": "02923889999"
+                                                    },
+                                                    "address": {
+                                                        "type": "string",
+                                                        "example": "Ninh Kieu, Can Tho"
+                                                    },
+                                                    "province_code": {
+                                                        "type": "string",
+                                                        "example": "CT"
+                                                    },
+                                                    "branch_type": {
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "clinic",
+                                                            "hybrid"
+                                                        ]
+                                                    },
+                                                    "business_hours": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "properties": {
+                                                                "weekday": {
+                                                                    "type": "integer",
+                                                                    "maximum": 6,
+                                                                    "minimum": 0
+                                                                },
+                                                                "opens_at": {
+                                                                    "type": "string",
+                                                                    "example": "09:00:00",
+                                                                    "nullable": true
+                                                                },
+                                                                "closes_at": {
+                                                                    "type": "string",
+                                                                    "example": "20:00:00",
+                                                                    "nullable": true
+                                                                },
+                                                                "is_closed": {
+                                                                    "type": "boolean",
+                                                                    "example": false
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        }
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Clinic list loaded successfully"
+                                        },
+                                        "meta": {
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clinics/{branchId}/services": {
+            "get": {
+                "tags": [
+                    "Clinics"
+                ],
+                "summary": "List active services enabled at a clinic branch",
+                "operationId": "listPublicClinicServices",
+                "parameters": [
+                    {
+                        "name": "branchId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Available clinic services",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "properties": {
+                                                    "id": {
+                                                        "type": "integer",
+                                                        "example": 1
+                                                    },
+                                                    "name": {
+                                                        "type": "string",
+                                                        "example": "Skin care treatment"
+                                                    },
+                                                    "slug": {
+                                                        "type": "string",
+                                                        "example": "skin-care-treatment"
+                                                    },
+                                                    "category": {
+                                                        "type": "string",
+                                                        "example": "skin_care"
+                                                    },
+                                                    "short_description": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "description": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "image_url": {
+                                                        "type": "string",
+                                                        "nullable": true
+                                                    },
+                                                    "duration_minutes": {
+                                                        "type": "integer",
+                                                        "example": 60
+                                                    },
+                                                    "price": {
+                                                        "type": "integer",
+                                                        "format": "int64",
+                                                        "example": 450000
+                                                    },
+                                                    "is_available": {
+                                                        "type": "boolean",
+                                                        "example": true
+                                                    },
+                                                    "capacity": {
+                                                        "type": "integer",
+                                                        "example": 2
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        },
+                                        "message": {
+                                            "type": "string"
+                                        },
+                                        "meta": {
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Clinic branch not found"
+                    }
+                }
+            }
+        },
+        "/api/v1/clinics/{branchId}/services/{serviceId}/slots": {
+            "get": {
+                "tags": [
+                    "Clinics"
+                ],
+                "summary": "List read-only booking slots on a 30-minute grid",
+                "operationId": "listPublicClinicSlots",
+                "parameters": [
+                    {
+                        "name": "branchId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "serviceId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "date",
+                        "in": "query",
+                        "description": "Booking date from today through 90 days ahead",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "date",
+                            "example": "2026-07-29"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Slot availability; this response does not reserve a slot",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "data": {
+                                            "properties": {
+                                                "branch": {
+                                                    "properties": {
+                                                        "id": {
+                                                            "type": "integer"
+                                                        },
+                                                        "name": {
+                                                            "type": "string"
+                                                        },
+                                                        "code": {
+                                                            "type": "string"
+                                                        },
+                                                        "branch_type": {
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                },
+                                                "service": {
+                                                    "properties": {
+                                                        "id": {
+                                                            "type": "integer"
+                                                        },
+                                                        "name": {
+                                                            "type": "string"
+                                                        },
+                                                        "duration_minutes": {
+                                                            "type": "integer"
+                                                        },
+                                                        "price": {
+                                                            "type": "integer",
+                                                            "format": "int64"
+                                                        },
+                                                        "capacity": {
+                                                            "type": "integer"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                },
+                                                "date": {
+                                                    "type": "string",
+                                                    "format": "date"
+                                                },
+                                                "timezone": {
+                                                    "type": "string",
+                                                    "example": "Asia/Ho_Chi_Minh"
+                                                },
+                                                "slots": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "properties": {
+                                                            "start_at": {
+                                                                "type": "string",
+                                                                "format": "date-time"
+                                                            },
+                                                            "end_at": {
+                                                                "type": "string",
+                                                                "format": "date-time"
+                                                            },
+                                                            "available": {
+                                                                "type": "boolean"
+                                                            },
+                                                            "remaining_capacity": {
+                                                                "type": "integer"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    }
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "message": {
+                                            "type": "string"
+                                        },
+                                        "meta": {
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Clinic or enabled service not found"
+                    },
+                    "422": {
+                        "description": "Invalid, past, or more than 90 days future date"
+                    }
+                }
+            }
+        },
         "/api/v1/customer/cart": {
             "get": {
                 "tags": [
@@ -2004,6 +2344,10 @@
         {
             "name": "Catalog",
             "description": "Catalog"
+        },
+        {
+            "name": "Clinics",
+            "description": "Clinics"
         },
         {
             "name": "Customer Cart",

@@ -51,7 +51,7 @@ class Service extends Model
     public function branches(): BelongsToMany
     {
         return $this->belongsToMany(Branch::class, 'branch_services')
-            ->withPivot('is_available')
+            ->withPivot(['is_available', 'capacity'])
             ->withTimestamps();
     }
 

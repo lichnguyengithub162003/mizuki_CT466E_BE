@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['branch_id', 'service_id', 'is_available'])]
+#[Fillable(['branch_id', 'service_id', 'is_available', 'capacity'])]
 class BranchService extends Model
 {
     /**
@@ -16,6 +16,7 @@ class BranchService extends Model
     {
         return [
             'is_available' => 'boolean',
+            'capacity' => 'integer',
         ];
     }
 

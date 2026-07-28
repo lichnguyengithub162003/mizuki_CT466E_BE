@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\Cashier\PosController;
 use App\Http\Controllers\Api\V1\Catalog\BrandController;
 use App\Http\Controllers\Api\V1\Catalog\CategoryController;
 use App\Http\Controllers\Api\V1\Catalog\ProductController;
+use App\Http\Controllers\Api\V1\ClinicController;
 use App\Http\Controllers\Api\V1\Customer\CartController;
 use App\Http\Controllers\Api\V1\Customer\CartPromotionController;
 use App\Http\Controllers\Api\V1\Customer\FavoriteController;
@@ -178,6 +179,13 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
         Route::get('provinces', [LocationController::class, 'provinces'])->name('provinces');
         Route::get('provinces/{provinceId}/districts', [LocationController::class, 'districts'])->name('districts');
         Route::get('districts/{districtId}/wards', [LocationController::class, 'wards'])->name('wards');
+    });
+
+    // Public clinic routes
+    Route::prefix('clinics')->name('clinics.')->group(function (): void {
+        Route::get('/', [ClinicController::class, 'index'])->name('index');
+        Route::get('{branchId}/services', [ClinicController::class, 'services'])->name('services.index');
+        Route::get('{branchId}/services/{serviceId}/slots', [ClinicController::class, 'slots'])->name('services.slots');
     });
 
     // Public catalog routes

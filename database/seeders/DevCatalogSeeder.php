@@ -4,12 +4,15 @@ namespace Database\Seeders;
 
 use App\Enums\BranchType;
 use App\Models\Branch;
+use App\Models\BranchBusinessHour;
 use App\Models\BranchInventory;
+use App\Models\BranchService;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\ProductVariant;
+use App\Models\Service;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -73,9 +76,9 @@ class DevCatalogSeeder extends Seeder
      */
     private function seedProducts(Collection $categories, Collection $brands): void
     {
-        $branch = Branch::query()->updateOrCreate(['code' => 'DEV-CT'], [
-            'code' => 'DEV-CT',
-            'name' => 'Mizuki Cần Thơ Dev',
+        $branch = Branch::query()->updateOrCreate(['code' => 'MZ-NK-01'], [
+            'code' => 'MZ-NK-01',
+            'name' => 'Mizuki Ninh Kiều',
             'branch_type' => BranchType::Store,
             'phone' => '02923888888',
             'email' => 'dev-cantho@mizuki.test',
@@ -86,8 +89,8 @@ class DevCatalogSeeder extends Seeder
             'is_active' => true,
         ]);
 
-        Branch::query()->updateOrCreate(['code' => 'DEV-CLINIC-CT'], [
-            'name' => 'Mizuki Clinic Can Tho Dev',
+        $clinic = Branch::query()->updateOrCreate(['code' => 'MZ-SKIN-NK-01'], [
+            'name' => 'Mizuki Clinic Ninh Kiều',
             'branch_type' => BranchType::Hybrid,
             'phone' => '02923889999',
             'email' => 'dev-clinic-cantho@mizuki.test',
@@ -98,6 +101,7 @@ class DevCatalogSeeder extends Seeder
             'is_active' => true,
         ]);
 
+        $this->seedClinicCatalog($clinic);
         $productNames = [
             'Sữa Rửa Mặt Dịu Nhẹ',
             'Gel Rửa Mặt Cho Da Dầu',
@@ -170,6 +174,65 @@ class DevCatalogSeeder extends Seeder
                     ]);
                 }
             }
+        }
+    }
+
+    private function seedClinicCatalog(Branch $clinic): void
+    {
+        foreach (range(0, 6) as $weekday) {
+            $isClosed = $weekday === 0;
+
+            BranchBusinessHour::query()->updateOrCreate([
+                'branch_id' => $clinic->id,
+                'weekday' => $weekday,
+            ], [
+                'opens_at' => $isClosed ? null : '09:00:00',
+                'closes_at' => $isClosed ? null : '20:00:00',
+                'is_closed' => $isClosed,
+            ]);
+        }
+
+        $services = [
+            [
+                'category' => 'skin_care',
+                'name' => 'Chăm sóc da chuyên sâu',
+                'slug' => 'mizuki-deep-skin-care',
+                'short_description' => 'Làm sạch sâu và cấp ẩm cho da.',
+                'description' => 'Liệu trình chăm sóc da gồm làm sạch, cấp ẩm và thư giãn.',
+                'image_url' => 'https://placehold.co/600x400?text=skin-care',
+                'duration_minutes' => 60,
+                'price' => 450_000,
+                'is_active' => true,
+                'sort_order' => 1,
+                'capacity' => 2,
+            ],
+            [
+                'category' => 'acne_care',
+                'name' => 'Chăm sóc da mụn',
+                'slug' => 'mizuki-acne-extraction',
+                'short_description' => 'Làm sạch và chăm sóc da dễ nổi mụn.',
+                'description' => 'Liệu trình làm sạch da, chăm sóc vùng da dễ nổi mụn và hướng dẫn chăm sóc sau liệu trình.',
+                'image_url' => 'https://placehold.co/600x400?text=acne-care',
+                'duration_minutes' => 90,
+                'price' => 650_000,
+                'is_active' => true,
+                'sort_order' => 2,
+                'capacity' => 1,
+            ],
+        ];
+
+        foreach ($services as $attributes) {
+            $capacity = $attributes['capacity'];
+            unset($attributes['capacity']);
+            $service = Service::query()->updateOrCreate(['slug' => $attributes['slug']], $attributes);
+
+            BranchService::query()->updateOrCreate([
+                'branch_id' => $clinic->id,
+                'service_id' => $service->id,
+            ], [
+                'is_available' => true,
+                'capacity' => $capacity,
+            ]);
         }
     }
 }
