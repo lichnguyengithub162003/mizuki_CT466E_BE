@@ -226,7 +226,7 @@ class ClinicController extends BaseController
         return $this->successResponse(
             request: $request,
             resource: new AvailableSlotsResource($result),
-            message: 'Lấy danh sách cơ sở chăm sóc da thành công!',
+            message: 'Lấy danh sách khung giờ trống thành công!',
         );
     }
 

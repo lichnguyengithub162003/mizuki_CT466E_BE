@@ -1580,6 +1580,169 @@
                 }
             }
         },
+        "/api/v1/customer/appointments": {
+            "get": {
+                "tags": [
+                    "Customer Appointments"
+                ],
+                "summary": "Danh sách lịch hẹn của khách hàng",
+                "operationId": "customerAppointmentList",
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Danh sách lịch hẹn"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không phải tài khoản khách hàng"
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Customer Appointments"
+                ],
+                "summary": "Đặt lịch dịch vụ trực tuyến",
+                "operationId": "customerCreateAppointment",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "branch_id",
+                                    "service_id",
+                                    "appointment_date",
+                                    "start_time"
+                                ],
+                                "properties": {
+                                    "branch_id": {
+                                        "type": "integer",
+                                        "example": 2
+                                    },
+                                    "service_id": {
+                                        "type": "integer",
+                                        "example": 1
+                                    },
+                                    "appointment_date": {
+                                        "type": "string",
+                                        "format": "date"
+                                    },
+                                    "start_time": {
+                                        "type": "string",
+                                        "example": "09:00"
+                                    },
+                                    "customer_note": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "maxLength": 1000
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Đặt lịch thành công"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không phải tài khoản khách hàng"
+                    },
+                    "422": {
+                        "description": "Slot hoặc dữ liệu đặt lịch không hợp lệ"
+                    },
+                    "429": {
+                        "description": "Vượt quá 5 yêu cầu đặt lịch mỗi phút"
+                    }
+                }
+            }
+        },
+        "/api/v1/customer/appointments/{id}": {
+            "get": {
+                "tags": [
+                    "Customer Appointments"
+                ],
+                "summary": "Chi tiết lịch hẹn của khách hàng",
+                "operationId": "customerAppointmentDetail",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Chi tiết lịch hẹn"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy lịch hẹn"
+                    }
+                }
+            }
+        },
+        "/api/v1/customer/appointments/{id}/cancel": {
+            "post": {
+                "tags": [
+                    "Customer Appointments"
+                ],
+                "summary": "Hủy lịch hẹn của khách hàng",
+                "operationId": "customerCancelAppointment",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Hủy lịch hẹn thành công"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy lịch hẹn"
+                    },
+                    "422": {
+                        "description": "Trạng thái không cho phép hủy"
+                    }
+                }
+            }
+        },
         "/api/v1/customer/cart": {
             "get": {
                 "tags": [
@@ -2348,6 +2511,10 @@
         {
             "name": "Clinics",
             "description": "Clinics"
+        },
+        {
+            "name": "Customer Appointments",
+            "description": "Customer Appointments"
         },
         {
             "name": "Customer Cart",

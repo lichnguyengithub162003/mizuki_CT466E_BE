@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\Catalog\BrandController;
 use App\Http\Controllers\Api\V1\Catalog\CategoryController;
 use App\Http\Controllers\Api\V1\Catalog\ProductController;
 use App\Http\Controllers\Api\V1\ClinicController;
+use App\Http\Controllers\Api\V1\Customer\AppointmentController;
 use App\Http\Controllers\Api\V1\Customer\CartController;
 use App\Http\Controllers\Api\V1\Customer\CartPromotionController;
 use App\Http\Controllers\Api\V1\Customer\FavoriteController;
@@ -66,6 +67,16 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
         Route::prefix('wallet')->name('wallet.')->middleware('role:customer')->group(function (): void {
             Route::get('/', [WalletController::class, 'show'])->name('show');
             Route::get('transactions', [WalletController::class, 'transactions'])->name('transactions');
+        });
+
+        // Appointments
+        Route::prefix('appointments')->name('appointments.')->middleware('role:customer')->group(function (): void {
+            Route::get('/', [AppointmentController::class, 'index'])->name('index');
+            Route::post('/', [AppointmentController::class, 'store'])
+                ->middleware('throttle:appointments.create')
+                ->name('store');
+            Route::post('{id}/cancel', [AppointmentController::class, 'cancel'])->name('cancel');
+            Route::get('{id}', [AppointmentController::class, 'show'])->name('show');
         });
 
         // Addresses
