@@ -2,9 +2,10 @@
 
 namespace Database\Seeders;
 
-use App\Models\Brand;
+use App\Enums\BranchType;
 use App\Models\Branch;
 use App\Models\BranchInventory;
+use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductImage;
@@ -17,7 +18,7 @@ class DevCatalogSeeder extends Seeder
 {
     public function run(): void
     {
-        $skinCare = Category::query()->create([
+        $skinCare = Category::query()->updateOrCreate(['slug' => 'cham-soc-da'], [
             'name' => 'Chăm sóc da',
             'slug' => 'cham-soc-da',
             'sort_order' => 1,
@@ -31,13 +32,13 @@ class DevCatalogSeeder extends Seeder
             ['name' => 'Serum', 'slug' => 'serum', 'sort_order' => 2],
             ['name' => 'Kem dưỡng', 'slug' => 'kem-duong', 'sort_order' => 3],
         ] as $category) {
-            $categories->push(Category::query()->create($category + [
+            $categories->push(Category::query()->updateOrCreate(['slug' => $category['slug']], $category + [
                 'parent_id' => $skinCare->id,
                 'is_active' => true,
             ]));
         }
 
-        $categories->push(Category::query()->create([
+        $categories->push(Category::query()->updateOrCreate(['slug' => 'trang-diem'], [
             'name' => 'Trang điểm',
             'slug' => 'trang-diem',
             'sort_order' => 2,
@@ -53,7 +54,7 @@ class DevCatalogSeeder extends Seeder
             ['Maybelline', 'maybelline'],
             ['Vichy', 'vichy'],
         ] as [$name, $slug]) {
-            $brands->push(Brand::query()->create([
+            $brands->push(Brand::query()->updateOrCreate(['slug' => $slug], [
                 'name' => $name,
                 'slug' => $slug,
                 'logo_url' => "https://placehold.co/300x150?text={$slug}",
@@ -67,17 +68,30 @@ class DevCatalogSeeder extends Seeder
     }
 
     /**
-     * @param Collection<int, Category> $categories
-     * @param Collection<int, Brand> $brands
+     * @param  Collection<int, Category>  $categories
+     * @param  Collection<int, Brand>  $brands
      */
     private function seedProducts(Collection $categories, Collection $brands): void
     {
-        $branch = Branch::query()->first() ?? Branch::query()->create([
+        $branch = Branch::query()->updateOrCreate(['code' => 'DEV-CT'], [
             'code' => 'DEV-CT',
             'name' => 'Mizuki Cần Thơ Dev',
+            'branch_type' => BranchType::Store,
             'phone' => '02923888888',
             'email' => 'dev-cantho@mizuki.test',
             'address' => 'Đường 3/2, Ninh Kiều, Cần Thơ',
+            'province_code' => 'CT',
+            'ghn_district_id' => 1442,
+            'ghn_ward_code' => '21012',
+            'is_active' => true,
+        ]);
+
+        Branch::query()->updateOrCreate(['code' => 'DEV-CLINIC-CT'], [
+            'name' => 'Mizuki Clinic Can Tho Dev',
+            'branch_type' => BranchType::Hybrid,
+            'phone' => '02923889999',
+            'email' => 'dev-clinic-cantho@mizuki.test',
+            'address' => 'Nguyen Van Cu, Ninh Kieu, Can Tho',
             'province_code' => 'CT',
             'ghn_district_id' => 1442,
             'ghn_ward_code' => '21012',
@@ -104,7 +118,7 @@ class DevCatalogSeeder extends Seeder
 
         foreach ($productNames as $index => $name) {
             $slug = Str::slug($name).'-'.($index + 1);
-            $product = Product::query()->create([
+            $product = Product::query()->updateOrCreate(['slug' => $slug], [
                 'category_id' => $categories[$index % $categories->count()]->id,
                 'brand_id' => $brands[$index % $brands->count()]->id,
                 'name' => $name,
@@ -115,7 +129,10 @@ class DevCatalogSeeder extends Seeder
                 'is_featured' => $index < 5,
             ]);
 
-            ProductImage::query()->create([
+            ProductImage::query()->updateOrCreate([
+                'product_id' => $product->id,
+                'is_primary' => true,
+            ], [
                 'product_id' => $product->id,
                 'image_url' => "https://placehold.co/600x600?text={$slug}",
                 'alt_text' => $name,
@@ -127,10 +144,11 @@ class DevCatalogSeeder extends Seeder
 
             for ($variantIndex = 0; $variantIndex < $variantCount; $variantIndex++) {
                 $price = 100_000 + ($index * 25_000) + ($variantIndex * 30_000);
-                $variant = ProductVariant::query()->create([
+                $sku = 'DEV-'.strtoupper(Str::slug($slug, '')).'-'.($variantIndex + 1);
+                $variant = ProductVariant::query()->updateOrCreate(['sku' => $sku], [
                     'product_id' => $product->id,
-                    'name' => ($variantIndex + 1) * 50 . ' ml',
-                    'sku' => 'DEV-'.strtoupper(Str::slug($slug, '')).'-'.($variantIndex + 1),
+                    'name' => ($variantIndex + 1) * 50 .' ml',
+                    'sku' => $sku,
                     'attributes' => ['capacity' => (($variantIndex + 1) * 50).' ml'],
                     'price' => $price,
                     'sale_price' => ($index + $variantIndex) % 4 === 0 ? $price - 10_000 : null,
@@ -140,7 +158,10 @@ class DevCatalogSeeder extends Seeder
                 ]);
 
                 if ($index < 5 && $variantIndex === 0) {
-                    BranchInventory::query()->create([
+                    BranchInventory::query()->updateOrCreate([
+                        'branch_id' => $branch->id,
+                        'product_variant_id' => $variant->id,
+                    ], [
                         'branch_id' => $branch->id,
                         'product_variant_id' => $variant->id,
                         'quantity' => 20 + $index,

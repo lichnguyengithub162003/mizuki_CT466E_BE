@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\BranchType;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -11,6 +12,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 #[Fillable([
     'code',
     'name',
+    'branch_type',
     'phone',
     'email',
     'address',
@@ -29,9 +31,20 @@ class Branch extends Model
     protected function casts(): array
     {
         return [
+            'branch_type' => BranchType::class,
             'ghn_district_id' => 'integer',
             'is_active' => 'boolean',
         ];
+    }
+
+    public function supportsRetail(): bool
+    {
+        return $this->branch_type->supportsRetail();
+    }
+
+    public function supportsClinic(): bool
+    {
+        return $this->branch_type->supportsClinic();
     }
 
     /**
