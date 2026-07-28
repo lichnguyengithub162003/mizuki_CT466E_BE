@@ -75,6 +75,14 @@ class User extends Authenticatable
     }
 
     /**
+     * @return HasOne<SkinProfile, $this>
+     */
+    public function skinProfile(): HasOne
+    {
+        return $this->hasOne(SkinProfile::class);
+    }
+
+    /**
      * @return HasMany<SocialAccount, $this>
      */
     public function socialAccounts(): HasMany

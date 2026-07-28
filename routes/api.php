@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\Admin\AppointmentController as AdminAppointmentC
 use App\Http\Controllers\Api\V1\Admin\OrderController as AdminOrderController;
 use App\Http\Controllers\Api\V1\Admin\PromotionController as AdminPromotionController;
 use App\Http\Controllers\Api\V1\Admin\RefundController as AdminRefundController;
+use App\Http\Controllers\Api\V1\Admin\SkinProfileController as AdminSkinProfileController;
 use App\Http\Controllers\Api\V1\Auth\CustomerAuthController;
 use App\Http\Controllers\Api\V1\Auth\GoogleAuthController;
 use App\Http\Controllers\Api\V1\Cashier\PosController;
@@ -18,10 +19,12 @@ use App\Http\Controllers\Api\V1\Customer\FavoriteController;
 use App\Http\Controllers\Api\V1\Customer\OrderController;
 use App\Http\Controllers\Api\V1\Customer\OrderPaymentController;
 use App\Http\Controllers\Api\V1\Customer\ProfileController;
+use App\Http\Controllers\Api\V1\Customer\SkinProfileController as CustomerSkinProfileController;
 use App\Http\Controllers\Api\V1\Customer\WalletController;
 use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\Payment\VnPayController;
 use App\Http\Controllers\Api\V1\Technician\AppointmentController as TechnicianAppointmentController;
+use App\Http\Controllers\Api\V1\Technician\SkinProfileController as TechnicianSkinProfileController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->name('api.v1.')->group(function (): void {
@@ -69,6 +72,11 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
         Route::prefix('wallet')->name('wallet.')->middleware('role:customer')->group(function (): void {
             Route::get('/', [WalletController::class, 'show'])->name('show');
             Route::get('transactions', [WalletController::class, 'transactions'])->name('transactions');
+        });
+
+        Route::middleware('role:customer')->group(function (): void {
+            Route::get('skin-profile', [CustomerSkinProfileController::class, 'show'])->name('skin-profile.show');
+            Route::put('skin-profile', [CustomerSkinProfileController::class, 'update'])->name('skin-profile.update');
         });
 
         // Appointments
@@ -175,6 +183,10 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
                 Route::post('{id}/cancel', [AdminAppointmentController::class, 'cancel'])->name('cancel');
                 Route::get('{id}', [AdminAppointmentController::class, 'show'])->name('show');
             });
+
+        Route::get('customers/{customer}/skin-profile', [AdminSkinProfileController::class, 'show'])
+            ->middleware('role:branch_manager,super_admin')
+            ->name('customers.skin-profile.show');
     });
 
     Route::prefix('technician/appointments')
@@ -188,6 +200,10 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
         });
 
     // Cashier POS routes
+
+    Route::get('technician/customers/{customer}/skin-profile', [TechnicianSkinProfileController::class, 'show'])
+        ->middleware(['auth:sanctum', 'role:technician'])
+        ->name('technician.customers.skin-profile.show');
     Route::prefix('cashier/pos')
         ->name('cashier.pos.')
         ->middleware(['auth:sanctum', 'role:cashier'])

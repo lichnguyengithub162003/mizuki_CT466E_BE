@@ -823,6 +823,39 @@
                 }
             }
         },
+        "/api/v1/admin/customers/{customer}/skin-profile": {
+            "get": {
+                "tags": [
+                    "Staff Skin Profile"
+                ],
+                "summary": "Xem hồ sơ da khách hàng theo phạm vi quản lý",
+                "operationId": "adminShowCustomerSkinProfile",
+                "parameters": [
+                    {
+                        "name": "customer",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Hồ sơ da khách hàng"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không có quyền"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy khách hàng phù hợp"
+                    }
+                }
+            }
+        },
         "/api/v1/cashier/pos/products": {
             "get": {
                 "tags": [
@@ -2651,6 +2684,92 @@
                 }
             }
         },
+        "/api/v1/customer/skin-profile": {
+            "get": {
+                "tags": [
+                    "Customer Skin Profile"
+                ],
+                "summary": "Xem hồ sơ da của khách hàng đang đăng nhập",
+                "operationId": "customerShowSkinProfile",
+                "responses": {
+                    "200": {
+                        "description": "Hồ sơ da hoặc biểu diễn rỗng"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không phải tài khoản khách hàng"
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Customer Skin Profile"
+                ],
+                "summary": "Tạo hoặc cập nhật hồ sơ da",
+                "operationId": "customerUpdateSkinProfile",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "properties": {
+                                    "skin_type": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "enum": [
+                                            "normal",
+                                            "dry",
+                                            "oily",
+                                            "combination",
+                                            "sensitive"
+                                        ]
+                                    },
+                                    "concerns": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "nullable": true
+                                    },
+                                    "sensitivity_level": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "enum": [
+                                            "low",
+                                            "medium",
+                                            "high"
+                                        ]
+                                    },
+                                    "allergies": {
+                                        "type": "string",
+                                        "nullable": true
+                                    },
+                                    "current_products": {
+                                        "type": "string",
+                                        "nullable": true
+                                    },
+                                    "notes": {
+                                        "type": "string",
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Đã lưu hồ sơ da"
+                    },
+                    "422": {
+                        "description": "Dữ liệu không hợp lệ"
+                    }
+                }
+            }
+        },
         "/api/v1/customer/wallet": {
             "get": {
                 "tags": [
@@ -2882,6 +3001,39 @@
                     }
                 }
             }
+        },
+        "/api/v1/technician/customers/{customer}/skin-profile": {
+            "get": {
+                "tags": [
+                    "Staff Skin Profile"
+                ],
+                "summary": "Xem hồ sơ da khách hàng được phân công",
+                "operationId": "technicianShowCustomerSkinProfile",
+                "parameters": [
+                    {
+                        "name": "customer",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Hồ sơ da khách hàng"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không có quyền"
+                    },
+                    "404": {
+                        "description": "Khách hàng không thuộc lịch được phân công"
+                    }
+                }
+            }
         }
     },
     "tags": [
@@ -2900,6 +3052,10 @@
         {
             "name": "Admin Refunds",
             "description": "Admin Refunds"
+        },
+        {
+            "name": "Staff Skin Profile",
+            "description": "Staff Skin Profile"
         },
         {
             "name": "Cashier POS",
@@ -2928,6 +3084,10 @@
         {
             "name": "Customer Orders",
             "description": "Customer Orders"
+        },
+        {
+            "name": "Customer Skin Profile",
+            "description": "Customer Skin Profile"
         },
         {
             "name": "Customer Wallet",
