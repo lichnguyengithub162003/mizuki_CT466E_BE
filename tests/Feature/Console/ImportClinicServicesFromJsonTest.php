@@ -8,6 +8,7 @@ use App\Services\Import\ClinicServiceJsonImportService;
 use App\Support\Import\ClinicServiceJsonMapper;
 use Illuminate\Console\Command;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
 
 uses(RefreshDatabase::class);
@@ -79,12 +80,22 @@ test('dry-run analyzes the complete source and performs no database or storage w
         ->and(Storage::disk('local')->allFiles())->toBe([]);
 });
 
-test('dry-run option is mandatory', function (): void {
+test('declined write confirmation performs no database writes', function (): void {
     $branch = createClinicJsonImportBranch();
+    $serviceCount = Service::query()->withTrashed()->count();
+    $attachmentCount = BranchService::query()->count();
 
     $this->artisan('import:clinic-services', ['--branch' => $branch->id])
-        ->expectsOutput('The --dry-run option is required; write mode is not available.')
-        ->assertExitCode(Command::INVALID);
+        ->expectsConfirmation(
+            "Import 145 valid clinic services into branch {$branch->id}?",
+            'no',
+        )
+        ->expectsOutput('Import cancelled: no database writes were performed.')
+        ->expectsOutput('Rolled back: no')
+        ->assertSuccessful();
+
+    expect(Service::query()->withTrashed()->count())->toBe($serviceCount)
+        ->and(BranchService::query()->count())->toBe($attachmentCount);
 });
 
 test('branch option is mandatory', function (): void {
@@ -203,4 +214,156 @@ test('existing deterministic services are planned as updates without being chang
         ->and($existing->updated_at?->toISOString())->toBe($beforeUpdatedAt)
         ->and($existing->branchServices()->first()->capacity)->toBe(3)
         ->and($existing->branchServices()->first()->is_available)->toBeFalse();
+});
+
+describe('write mode clinic importer', function (): void {
+    test('write mode creates valid services and selected branch links but skips quarantined records', function (): void {
+        $branch = createClinicJsonImportBranch();
+        $otherBranch = createClinicJsonImportBranch(BranchType::Clinic);
+        $records = [
+            clinicJsonImportRecord(),
+            clinicJsonImportRecord([
+                'sourceId' => '1002',
+                'sku' => '90001002',
+                'durationMinutes' => null,
+                'durationText' => '1 lần | 30-60 phút',
+            ]),
+        ];
+
+        $result = app(ClinicServiceJsonImportService::class)->importJson(
+            json_encode($records, JSON_THROW_ON_ERROR),
+            $branch,
+        );
+        $service = Service::query()->where('slug', 'hasaki-clinic-1001')->firstOrFail();
+
+        expect($result)->toMatchArray([
+            'valid' => 1,
+            'quarantined' => 1,
+            'failed' => 0,
+            'created_services' => 1,
+            'updated_services' => 0,
+            'unchanged_services' => 0,
+            'created_branch_service_links' => 1,
+            'updated_branch_service_links' => 0,
+            'unchanged_branch_service_links' => 0,
+            'rolled_back' => false,
+        ])->and(Service::query()->where('slug', 'hasaki-clinic-1002')->exists())->toBeFalse()
+            ->and(BranchService::query()->where([
+                'branch_id' => $branch->id,
+                'service_id' => $service->id,
+            ])->exists())->toBeTrue()
+            ->and(BranchService::query()->where([
+                'branch_id' => $otherBranch->id,
+                'service_id' => $service->id,
+            ])->exists())->toBeFalse();
+    });
+
+    test('write mode is idempotent and updates changed names under the stable source slug', function (): void {
+        $branch = createClinicJsonImportBranch();
+        $service = app(ClinicServiceJsonImportService::class);
+        $originalJson = json_encode([clinicJsonImportRecord()], JSON_THROW_ON_ERROR);
+
+        $first = $service->importJson($originalJson, $branch);
+        $second = $service->importJson($originalJson, $branch);
+        $renamed = $service->importJson(json_encode([
+            clinicJsonImportRecord(['name' => 'Renamed Clinic Service']),
+        ], JSON_THROW_ON_ERROR), $branch);
+
+        expect($first['created_services'])->toBe(1)
+            ->and($second['created_services'])->toBe(0)
+            ->and($second['unchanged_services'])->toBe(1)
+            ->and($second['unchanged_branch_service_links'])->toBe(1)
+            ->and($renamed['updated_services'])->toBe(1)
+            ->and(Service::query()->where('slug', 'hasaki-clinic-1001')->count())->toBe(1)
+            ->and(Service::query()->where('slug', 'hasaki-clinic-1001')->value('name'))
+            ->toBe('Renamed Clinic Service')
+            ->and(BranchService::query()->count())->toBe(1);
+    });
+
+    test('write mode preserves existing branch service operational overrides', function (): void {
+        $branch = createClinicJsonImportBranch();
+        $mapped = app(ClinicServiceJsonMapper::class)->map(clinicJsonImportRecord());
+        $service = Service::query()->create($mapped['service']);
+        $link = BranchService::query()->create([
+            'branch_id' => $branch->id,
+            'service_id' => $service->id,
+            'is_available' => false,
+            'capacity' => 7,
+        ]);
+
+        $result = app(ClinicServiceJsonImportService::class)->importJson(
+            json_encode([clinicJsonImportRecord(['name' => 'Updated Catalog Name'])], JSON_THROW_ON_ERROR),
+            $branch,
+        );
+
+        expect($result['updated_services'])->toBe(1)
+            ->and($result['updated_branch_service_links'])->toBe(0)
+            ->and($result['unchanged_branch_service_links'])->toBe(1)
+            ->and($link->refresh()->is_available)->toBeFalse()
+            ->and($link->capacity)->toBe(7);
+    });
+
+    test('force bypasses confirmation and prints accurate write counters', function (): void {
+        $branch = createClinicJsonImportBranch();
+
+        $this->artisan('import:clinic-services', [
+            '--branch' => $branch->id,
+            '--force' => true,
+        ])
+            ->expectsOutput('Valid records: 145')
+            ->expectsOutput('Created services: 145')
+            ->expectsOutput('Updated services: 0')
+            ->expectsOutput('Unchanged services: 0')
+            ->expectsOutput('Created branch-service links: 145')
+            ->expectsOutput('Rolled back: no')
+            ->assertSuccessful();
+
+        expect(Service::query()->where('slug', 'like', 'hasaki-clinic-%')->count())->toBe(145)
+            ->and(BranchService::query()->where('branch_id', $branch->id)->count())->toBe(145);
+    });
+
+    test('fatal write failure rolls back the complete command execution', function (): void {
+        $branch = createClinicJsonImportBranch();
+        $eventName = 'eloquent.creating: '.Service::class;
+        $creating = 0;
+
+        Event::listen($eventName, function () use (&$creating): void {
+            $creating++;
+
+            if ($creating === 2) {
+                throw new RuntimeException('Forced importer write failure.');
+            }
+        });
+
+        try {
+            $this->artisan('import:clinic-services', [
+                '--branch' => $branch->id,
+                '--force' => true,
+            ])
+                ->expectsOutput('Import failed: Forced importer write failure.')
+                ->expectsOutput('Rolled back: yes')
+                ->assertFailed();
+        } finally {
+            Event::forget($eventName);
+        }
+
+        expect(Service::query()->withTrashed()->count())->toBe(0)
+            ->and(BranchService::query()->count())->toBe(0);
+    });
+
+    test('imported services are exposed by the existing public clinic API', function (): void {
+        $branch = createClinicJsonImportBranch();
+        app(ClinicServiceJsonImportService::class)->importJson(
+            json_encode([clinicJsonImportRecord()], JSON_THROW_ON_ERROR),
+            $branch,
+        );
+
+        $this->getJson("/api/v1/clinics/{$branch->id}/services")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.slug', 'hasaki-clinic-1001')
+            ->assertJsonPath('data.0.capacity', 1)
+            ->assertJsonPath('data.0.is_available', true);
+    });
 });

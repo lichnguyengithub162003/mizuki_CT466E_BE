@@ -9,19 +9,14 @@ use Throwable;
 class ImportClinicServicesFromJson extends Command
 {
     protected $signature = 'import:clinic-services
-                            {--dry-run : Required read-only analysis mode}
-                            {--branch= : Target Mizuki clinic branch ID}';
+                            {--dry-run : Analyze source without database or storage writes}
+                            {--branch= : Target Mizuki clinic branch ID}
+                            {--force : Skip write-mode confirmation}';
 
-    protected $description = 'Validate and preview clinic services from JSON without writing data';
+    protected $description = 'Analyze or import clinic services from JSON';
 
     public function handle(ClinicServiceJsonImportService $service): int
     {
-        if (! $this->option('dry-run')) {
-            $this->error('The --dry-run option is required; write mode is not available.');
-
-            return self::INVALID;
-        }
-
         $branchId = filter_var(
             $this->option('branch'),
             FILTER_VALIDATE_INT,
@@ -53,8 +48,9 @@ class ImportClinicServicesFromJson extends Command
             return self::FAILURE;
         }
 
-        $this->info('Clinic service JSON import dry-run');
+        $this->info($this->option('dry-run') ? 'Clinic service JSON import dry-run' : 'Clinic service JSON import write-mode');
         $this->line("Branch: {$branch->id} - {$branch->name}");
+        $this->line("Valid records: {$result['valid']}");
         $this->line("Total records: {$result['total']}");
         $this->line("Valid planned inserts: {$result['planned_inserts']}");
         $this->line("Valid planned updates: {$result['planned_updates']}");
@@ -105,8 +101,47 @@ class ImportClinicServicesFromJson extends Command
         }
 
         $this->newLine();
-        $this->comment('Dry-run complete: no database or storage writes were performed.');
+
+        if ($this->option('dry-run')) {
+            $this->comment('Dry-run complete: no database or storage writes were performed.');
+
+            return $result['failed'] > 0 ? self::FAILURE : self::SUCCESS;
+        }
+
+        if (! $this->option('force') && ! $this->confirm(
+            "Import {$result['valid']} valid clinic services into branch {$branch->id}?",
+        )) {
+            $this->warn('Import cancelled: no database writes were performed.');
+            $this->writeSummary($result + ['rolled_back' => false]);
+
+            return self::SUCCESS;
+        }
+
+        try {
+            $result = $service->persistAnalysis($result, $branch);
+        } catch (Throwable $exception) {
+            $this->error('Import failed: '.$exception->getMessage());
+            $this->writeSummary($result + ['rolled_back' => true]);
+
+            return self::FAILURE;
+        }
+
+        $this->writeSummary($result);
 
         return $result['failed'] > 0 ? self::FAILURE : self::SUCCESS;
+    }
+
+    /** @param array<string, mixed> $result */
+    private function writeSummary(array $result): void
+    {
+        $this->newLine();
+        $this->info('Write summary');
+        $this->line('Created services: '.($result['created_services'] ?? 0));
+        $this->line('Updated services: '.($result['updated_services'] ?? 0));
+        $this->line('Unchanged services: '.($result['unchanged_services'] ?? 0));
+        $this->line('Created branch-service links: '.($result['created_branch_service_links'] ?? 0));
+        $this->line('Updated branch-service links: '.($result['updated_branch_service_links'] ?? 0));
+        $this->line('Unchanged branch-service links: '.($result['unchanged_branch_service_links'] ?? 0));
+        $this->line('Rolled back: '.(($result['rolled_back'] ?? false) ? 'yes' : 'no'));
     }
 }
