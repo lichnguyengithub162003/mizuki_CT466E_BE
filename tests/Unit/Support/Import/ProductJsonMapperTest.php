@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\Import\ProductHtmlSanitizer;
 use App\Support\Import\ProductJsonMapper;
 
 beforeEach(function (): void {
@@ -172,4 +173,23 @@ test('shipping weight is never invented and missing policy is reported', functio
 
     expect($mapped['variant']['weight'])->toBeNull()
         ->and($mapped['warnings'])->toContain('missing_weight_policy');
+});
+test('write HTML sanitizer removes executable content and unsafe attributes', function (): void {
+    $html = <<<'HTML'
+<p onclick="alert(1)" style="color:red">Readable <strong>content</strong>
+<script>alert('x')</script><a href="javascript:alert(2)">link</a>
+<img src="data:text/html;base64,evil"><iframe src="https://evil.test">frame</iframe></p>
+HTML;
+
+    $sanitized = (new ProductHtmlSanitizer)->sanitize($html);
+
+    expect($sanitized)->toContain('<p>')
+        ->and($sanitized)->toContain('<strong>content</strong>')
+        ->and($sanitized)->toContain('link')
+        ->and($sanitized)->not->toContain('script')
+        ->and($sanitized)->not->toContain('iframe')
+        ->and($sanitized)->not->toContain('onclick')
+        ->and($sanitized)->not->toContain('style=')
+        ->and($sanitized)->not->toContain('javascript:')
+        ->and($sanitized)->not->toContain('data:text');
 });

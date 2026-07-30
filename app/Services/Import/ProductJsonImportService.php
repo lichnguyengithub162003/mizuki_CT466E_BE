@@ -3,9 +3,11 @@
 namespace App\Services\Import;
 
 use App\Repositories\Import\ProductImportRepository;
+use App\Support\Import\ProductHtmlSanitizer;
 use App\Support\Import\ProductImportResult;
 use App\Support\Import\ProductJsonMapper;
 use Generator;
+use Illuminate\Support\Str;
 use JsonException;
 use RuntimeException;
 use UnexpectedValueException;
@@ -15,6 +17,7 @@ class ProductJsonImportService
     public function __construct(
         private readonly ProductImportRepository $repository,
         private readonly ProductJsonMapper $mapper,
+        private readonly ProductHtmlSanitizer $htmlSanitizer,
     ) {}
 
     public function analyzeFile(string $path, int $offset = 0, ?int $limit = null): ProductImportResult
@@ -42,6 +45,122 @@ class ProductJsonImportService
         }
 
         return $this->analyzeRecords($source, $offset, $limit);
+    }
+
+    public function importFile(
+        string $path,
+        int $offset,
+        int $limit,
+        int $defaultWeight,
+    ): ProductImportResult {
+        return $this->persistAnalysis(
+            $this->analyzeFile($path, $offset, $limit),
+            $defaultWeight,
+        );
+    }
+
+    public function importJson(
+        string $json,
+        int $offset,
+        int $limit,
+        int $defaultWeight,
+    ): ProductImportResult {
+        return $this->persistAnalysis(
+            $this->analyzeJson($json, $offset, $limit),
+            $defaultWeight,
+        );
+    }
+
+    public function persistAnalysis(
+        ProductImportResult $analysis,
+        int $defaultWeight,
+    ): ProductImportResult {
+        $data = $analysis->toArray();
+
+        if ($data['quarantined'] > 0 || $data['failed'] > 0) {
+            throw new UnexpectedValueException(
+                'Selected product batch contains quarantined or failed records.',
+            );
+        }
+
+        if ($defaultWeight < 1 || $defaultWeight > 100_000) {
+            throw new UnexpectedValueException(
+                'Default weight must be an integer between 1 and 100000 grams.',
+            );
+        }
+
+        $records = $data['planned_records'];
+        $barcodes = array_values(array_filter(array_map(
+            static fn (array $record): ?string => $record['variant']['barcode'],
+            $records,
+        )));
+        $barcodeOwners = $this->repository->barcodeOwners($barcodes);
+        $existingBarcodeConflicts = 0;
+
+        foreach ($records as &$record) {
+            $barcode = $record['variant']['barcode'];
+
+            if (
+                $barcode !== null
+                && isset($barcodeOwners[$barcode])
+                && $barcodeOwners[$barcode] !== $record['synthetic_sku']
+            ) {
+                $record['variant']['barcode'] = null;
+                $record['warnings'][] = 'existing_barcode_conflict';
+                $existingBarcodeConflicts++;
+            }
+
+            $record['warnings'] = array_values(array_diff(
+                $record['warnings'],
+                ['missing_weight_policy'],
+            ));
+            $record['variant']['weight'] = $defaultWeight;
+            $record['variant']['attributes'] = $this->writeAttributes($record);
+
+            foreach (['description', 'ingredients', 'usage_instructions'] as $field) {
+                $record['product'][$field] = $this->htmlSanitizer->sanitize(
+                    $record['product'][$field],
+                );
+            }
+        }
+        unset($record);
+
+        $persistence = $this->repository->transaction(
+            fn (): array => $this->repository->persistBatch($records),
+        );
+        $data['planned_records'] = $records;
+        $data['default_weight'] = $defaultWeight;
+        $data['transaction_result'] = 'committed';
+        $data['quality']['existing_barcode_conflict'] = $existingBarcodeConflicts;
+        $data['quality']['missing_weight_policy'] = 0;
+
+        return new ProductImportResult(array_merge($data, $persistence));
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     * @return array<string, string>|null
+     */
+    private function writeAttributes(array $record): ?array
+    {
+        $attributes = is_array($record['variant']['attributes'])
+            ? $record['variant']['attributes']
+            : [];
+
+        foreach ($record['metadata']['specifications'] as $name => $value) {
+            if ($name === 'Barcode' || ! is_scalar($value)) {
+                continue;
+            }
+
+            $key = 'spec_'.Str::slug((string) $name, '_');
+            $safeValue = trim(strip_tags((string) $value));
+
+            if ($key !== 'spec_' && $safeValue !== '') {
+                $attributes[$key] = mb_substr($safeValue, 0, 500);
+            }
+        }
+
+        return $attributes === [] ? null : $attributes;
     }
 
     /**
@@ -156,6 +275,20 @@ class ProductJsonImportService
             }
         }
 
+        $productsWithoutSourceVariantGroups = count(array_filter(
+            $validRecords,
+            static fn (array $item): bool => $item['metadata']['variant_options'] === [],
+        ));
+        $lowResolutionImages = 0;
+
+        foreach ($validRecords as $item) {
+            foreach ($item['images'] as $image) {
+                if (str_contains($image['image_url'], '_img_80x80_')) {
+                    $lowResolutionImages++;
+                }
+            }
+        }
+
         return new ProductImportResult([
             'source_total' => $sourceTotal,
             'offset' => $offset,
@@ -169,6 +302,14 @@ class ProductJsonImportService
             'duplicate_skus' => $duplicateSkus,
             'duplicate_barcodes' => count($duplicateBarcodes),
             'warnings' => $warningCounts,
+            'quality' => [
+                'invalid_barcode' => $warningCounts['invalid_barcode'] ?? 0,
+                'duplicate_barcode' => count($duplicateBarcodes),
+                'existing_barcode_conflict' => 0,
+                'missing_weight_policy' => $warningCounts['missing_weight_policy'] ?? 0,
+                'products_without_source_variant_groups' => $productsWithoutSourceVariantGroups,
+                'low_resolution_images' => $lowResolutionImages,
+            ],
             'plans' => $plans,
             'planned_records' => $validRecords,
             'quarantine_examples' => array_slice(array_map(

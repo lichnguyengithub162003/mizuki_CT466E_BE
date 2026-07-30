@@ -7,11 +7,87 @@ use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\ProductVariant;
+use Closure;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class ProductImportRepository
 {
+    public function transaction(Closure $callback): mixed
+    {
+        return DB::transaction($callback);
+    }
+
+    /**
+     * @param  list<string>  $barcodes
+     * @return array<string, string>
+     */
+    public function barcodeOwners(array $barcodes): array
+    {
+        if ($barcodes === []) {
+            return [];
+        }
+
+        return ProductVariant::query()
+            ->withTrashed()
+            ->whereIn('barcode', array_values(array_unique($barcodes)))
+            ->pluck('sku', 'barcode')
+            ->map(static fn (mixed $sku): string => (string) $sku)
+            ->all();
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $records
+     * @return array<string, mixed>
+     */
+    public function persistBatch(array $records): array
+    {
+        $counters = [
+            'brands' => $this->writeCounters(),
+            'categories' => $this->writeCounters(),
+            'products' => $this->writeCounters(),
+            'variants' => $this->writeCounters(),
+            'images' => [
+                'created' => 0,
+                'updated' => 0,
+                'unchanged' => 0,
+                'stale_skipped' => 0,
+            ],
+        ];
+        $brands = $this->persistBrands($records, $counters['brands']);
+        $categories = $this->persistCategories($records, $counters['categories']);
+        $samples = [];
+
+        foreach ($records as $record) {
+            $brand = $brands[(string) $record['brand']['slug']];
+            $category = $categories[(string) $record['category_slug']];
+            $product = $this->persistProduct(
+                $record,
+                $brand,
+                $category,
+                $counters['products'],
+            );
+            $variant = $this->persistVariant($record, $product, $counters['variants']);
+            $this->persistImages($record, $product, $counters['images']);
+
+            if (count($samples) < 5) {
+                $samples[] = [
+                    'source_id' => $record['source_id'],
+                    'product_id' => $product->id,
+                    'product_slug' => $product->slug,
+                    'variant_id' => $variant->id,
+                    'sku' => $variant->sku,
+                ];
+            }
+        }
+
+        return [
+            'write_counters' => $counters,
+            'imported_mappings' => $samples,
+        ];
+    }
+
     /**
      * @param  list<array<string, mixed>>  $records
      * @return array<string, array{create: int, update: int, unchanged: int}>
@@ -58,6 +134,214 @@ class ProductImportRepository
         ];
 
         return $plans;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $records
+     * @param  array{created: int, updated: int, restored: int, unchanged: int}  $counters
+     * @return array<string, Brand>
+     */
+    private function persistBrands(array $records, array &$counters): array
+    {
+        $resolved = [];
+
+        foreach ($this->uniqueByNestedKey($records, 'brand', 'slug') as $slug => $attributes) {
+            $brand = Brand::query()->withTrashed()->where('slug', $slug)->lockForUpdate()->first();
+
+            if ($brand === null) {
+                $brand = Brand::query()->create($attributes);
+                $counters['created']++;
+            } else {
+                $restored = $brand->trashed();
+                $brand->fill(['name' => $attributes['name']]);
+
+                if ($restored) {
+                    $brand->is_active = true;
+                    $brand->restore();
+                    $counters['restored']++;
+                } elseif ($brand->isDirty()) {
+                    $brand->save();
+                    $counters['updated']++;
+                } else {
+                    $counters['unchanged']++;
+                }
+            }
+
+            $resolved[$slug] = $brand;
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $records
+     * @param  array{created: int, updated: int, restored: int, unchanged: int}  $counters
+     * @return array<string, Category>
+     */
+    private function persistCategories(array $records, array &$counters): array
+    {
+        $resolved = [];
+
+        foreach ($this->uniqueCategories($records) as $slug => $attributes) {
+            $parentSlug = $attributes['parent_slug'];
+            $parentId = $parentSlug === null ? null : $resolved[$parentSlug]->id;
+            $category = Category::query()->withTrashed()->where('slug', $slug)->lockForUpdate()->first();
+
+            if ($category === null) {
+                unset($attributes['parent_slug']);
+                $category = Category::query()->create($attributes + ['parent_id' => $parentId]);
+                $counters['created']++;
+            } else {
+                $restored = $category->trashed();
+                $category->fill(['name' => $attributes['name'], 'parent_id' => $parentId]);
+
+                if ($restored) {
+                    $category->is_active = true;
+                    $category->restore();
+                    $counters['restored']++;
+                } elseif ($category->isDirty()) {
+                    $category->save();
+                    $counters['updated']++;
+                } else {
+                    $counters['unchanged']++;
+                }
+            }
+
+            $resolved[$slug] = $category;
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     * @param  array{created: int, updated: int, restored: int, unchanged: int}  $counters
+     */
+    private function persistProduct(
+        array $record,
+        Brand $brand,
+        Category $category,
+        array &$counters,
+    ): Product {
+        $product = Product::query()->withTrashed()
+            ->where('slug', $record['product_slug'])->lockForUpdate()->first();
+        $attributes = $record['product'] + [
+            'brand_id' => $brand->id,
+            'category_id' => $category->id,
+        ];
+
+        if ($product === null) {
+            $product = Product::query()->create($attributes);
+            $counters['created']++;
+
+            return $product;
+        }
+
+        $restored = $product->trashed();
+        unset($attributes['is_featured']);
+        $product->fill($attributes);
+
+        if ($restored) {
+            $product->is_active = true;
+            $product->restore();
+            $counters['restored']++;
+        } elseif ($product->isDirty()) {
+            $product->save();
+            $counters['updated']++;
+        } else {
+            $counters['unchanged']++;
+        }
+
+        return $product;
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     * @param  array{created: int, updated: int, restored: int, unchanged: int}  $counters
+     */
+    private function persistVariant(
+        array $record,
+        Product $product,
+        array &$counters,
+    ): ProductVariant {
+        $variant = ProductVariant::query()->withTrashed()
+            ->where('sku', $record['synthetic_sku'])->lockForUpdate()->first();
+        $attributes = $record['variant'] + ['product_id' => $product->id];
+
+        if ($variant === null) {
+            $variant = ProductVariant::query()->create($attributes);
+            $counters['created']++;
+
+            return $variant;
+        }
+
+        $restored = $variant->trashed();
+
+        if ($attributes['barcode'] === null && $variant->barcode !== null) {
+            unset($attributes['barcode']);
+        }
+
+        if (! $restored && $this->matches($variant, $attributes)) {
+            $counters['unchanged']++;
+
+            return $variant;
+        }
+
+        $variant->fill($attributes);
+
+        if ($restored) {
+            $variant->is_active = true;
+            $variant->restore();
+            $counters['restored']++;
+        } elseif ($variant->isDirty()) {
+            $variant->save();
+            $counters['updated']++;
+        } else {
+            $counters['unchanged']++;
+        }
+
+        return $variant;
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     * @param  array{created: int, updated: int, unchanged: int, stale_skipped: int}  $counters
+     */
+    private function persistImages(array $record, Product $product, array &$counters): void
+    {
+        $existing = ProductImage::query()
+            ->where('product_id', $product->id)
+            ->whereNull('product_variant_id')
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('image_url');
+        $sourceUrls = [];
+
+        foreach ($record['images'] as $attributes) {
+            $sourceUrls[] = $attributes['image_url'];
+            $image = $existing->get($attributes['image_url']);
+
+            if ($image === null) {
+                ProductImage::query()->create($attributes + [
+                    'product_id' => $product->id,
+                    'product_variant_id' => null,
+                ]);
+                $counters['created']++;
+
+                continue;
+            }
+
+            $image->fill($attributes + ['product_variant_id' => null]);
+
+            if ($image->isDirty()) {
+                $image->save();
+                $counters['updated']++;
+            } else {
+                $counters['unchanged']++;
+            }
+        }
+
+        $counters['stale_skipped'] += $existing->keys()->diff($sourceUrls)->count();
     }
 
     /**
@@ -240,16 +524,60 @@ class ProductImportRepository
 
             $actual = $model->getAttribute($key);
 
-            if (is_array($expected)) {
-                if ($actual !== $expected) {
-                    return false;
-                }
-            } elseif ((string) $actual !== (string) $expected) {
+            if (! $this->valuesMatch($actual, $expected)) {
                 return false;
             }
         }
 
         return true;
+    }
+
+    private function valuesMatch(mixed $actual, mixed $expected): bool
+    {
+        if (is_array($actual) || is_array($expected)) {
+            return is_array($actual)
+                && is_array($expected)
+                && $this->normalizeArray($actual) === $this->normalizeArray($expected);
+        }
+
+        if ($actual === null || $expected === null) {
+            return $actual === $expected;
+        }
+
+        if (is_scalar($actual) && is_scalar($expected)) {
+            return (string) $actual === (string) $expected;
+        }
+
+        return $actual === $expected;
+    }
+
+    /**
+     * Canonicalize associative keys recursively while preserving list order.
+     *
+     * @param  array<array-key, mixed>  $value
+     * @return array<array-key, mixed>
+     */
+    private function normalizeArray(array $value): array
+    {
+        if (! array_is_list($value)) {
+            ksort($value);
+        }
+
+        foreach ($value as $key => $item) {
+            if (is_array($item)) {
+                $value[$key] = $this->normalizeArray($item);
+            }
+        }
+
+        return $value;
+    }
+
+    /**
+     * @return array{created: int, updated: int, restored: int, unchanged: int}
+     */
+    private function writeCounters(): array
+    {
+        return ['created' => 0, 'updated' => 0, 'restored' => 0, 'unchanged' => 0];
     }
 
     /**
