@@ -11,20 +11,14 @@ use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Password;
-use Illuminate\Auth\Events\PasswordReset;
-use Illuminate\Support\Str;
 
 class CustomerAuthService extends BaseService
 {
     public function __construct(
         private readonly UserRepository $users,
-    ) {
-    }
+    ) {}
 
-    /**
-     * @param array{name: string, email: string, password: string} $data
-     */
+    /** @param array{name: string, email: string, password: string} $data */
     public function register(array $data, Request $request): User
     {
         $user = $this->users->createCustomer([
@@ -39,7 +33,7 @@ class CustomerAuthService extends BaseService
     }
 
     /**
-     * @param array{email: string, password: string} $data
+     * @param  array{email: string, password: string}  $data
      *
      * @throws AuthenticationException
      */
@@ -57,7 +51,7 @@ class CustomerAuthService extends BaseService
     }
 
     /**
-     * @param array{email: string, password: string} $data
+     * @param  array{email: string, password: string}  $data
      *
      * @throws AuthenticationException
      */
@@ -79,9 +73,7 @@ class CustomerAuthService extends BaseService
         return $user;
     }
 
-    /**
-     * @throws AuthorizationException
-     */
+    /** @throws AuthorizationException */
     public function currentCustomer(User $user): User
     {
         if ($user->role !== UserRole::Customer) {
@@ -91,9 +83,7 @@ class CustomerAuthService extends BaseService
         return $user;
     }
 
-    /**
-     * @throws AuthorizationException
-     */
+    /** @throws AuthorizationException */
     public function logout(User $user, Request $request): void
     {
         $this->currentCustomer($user);
@@ -118,7 +108,7 @@ class CustomerAuthService extends BaseService
     }
 
     /**
-     * @param array{email: string, password: string} $data
+     * @param  array{email: string, password: string}  $data
      *
      * @throws AuthenticationException
      */
@@ -132,42 +122,4 @@ class CustomerAuthService extends BaseService
 
         return $user;
     }
-
-    public function forgotPassword(string $email): void
-{
-    Password::sendResetLink(
-        ['email' => $email],
-        function ($user, $token) use ($email) {
-            $resetUrl = config('app.frontend_url', 'http://localhost:5173')
-                . '/reset-password?token=' . $token
-                . '&email=' . urlencode($email);
-
-            $user->sendPasswordResetNotification($token);
-        }
-    );
-}
-
-    public function resetPassword(array $data): void
-{
-    $status = Password::reset(
-        [
-            'email'                 => $data['email'],
-            'password'              => $data['password'],
-            'password_confirmation' => $data['password'],
-            'token'                 => $data['token'],
-        ],
-        function ($user, $password) {
-            $user->forceFill([
-                'password'       => $password,
-                'remember_token' => Str::random(60),
-            ])->save();
-
-            event(new PasswordReset($user));
-        }
-    );
-
-    if ($status !== Password::PASSWORD_RESET) {
-        throw new \Exception('Token đặt lại mật khẩu không hợp lệ hoặc đã hết hạn');
-    }
-}
 }

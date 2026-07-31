@@ -48,10 +48,13 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
             ->middleware('auth:sanctum')
             ->name('logout');
         Route::post('forgot-password', [CustomerAuthController::class, 'forgotPassword'])
-            ->middleware('throttle:auth.register')
+            ->middleware('throttle:password.recovery.request')
             ->name('forgot-password');
+        Route::post('forgot-password/verify', [CustomerAuthController::class, 'verifyPasswordRecoveryOtp'])
+            ->middleware('throttle:password.recovery.verify')
+            ->name('forgot-password.verify');
         Route::post('reset-password', [CustomerAuthController::class, 'resetPassword'])
-            ->middleware('throttle:auth.register')
+            ->middleware('throttle:password.recovery.reset')
             ->name('reset-password');
         Route::get('google/redirect', [GoogleAuthController::class, 'redirect'])
             ->middleware('throttle:auth.login')

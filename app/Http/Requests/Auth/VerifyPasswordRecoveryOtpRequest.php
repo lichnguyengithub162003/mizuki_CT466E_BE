@@ -4,7 +4,7 @@ namespace App\Http\Requests\Auth;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class ResetPasswordRequest extends FormRequest
+class VerifyPasswordRecoveryOtpRequest extends FormRequest
 {
     public function authorize(): bool
     {
@@ -15,7 +15,7 @@ class ResetPasswordRequest extends FormRequest
     {
         $this->merge([
             'email' => strtolower(trim((string) $this->input('email'))),
-            'verification_token' => trim((string) $this->input('verification_token')),
+            'code' => trim((string) $this->input('code')),
         ]);
     }
 
@@ -24,8 +24,7 @@ class ResetPasswordRequest extends FormRequest
     {
         return [
             'email' => ['required', 'string', 'email', 'max:255'],
-            'verification_token' => ['required', 'string', 'size:64', 'regex:/\A[a-f0-9]{64}\z/'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'code' => ['required', 'string', 'size:6', 'regex:/\A[0-9]{6}\z/'],
         ];
     }
 
@@ -36,12 +35,9 @@ class ResetPasswordRequest extends FormRequest
             'email.required' => 'Vui lòng nhập email',
             'email.email' => 'Email không hợp lệ',
             'email.max' => 'Email không được vượt quá 255 ký tự',
-            'verification_token.required' => 'Phiên xác thực không hợp lệ',
-            'verification_token.size' => 'Phiên xác thực không hợp lệ',
-            'verification_token.regex' => 'Phiên xác thực không hợp lệ',
-            'password.required' => 'Vui lòng nhập mật khẩu mới',
-            'password.min' => 'Mật khẩu tối thiểu 8 ký tự',
-            'password.confirmed' => 'Xác nhận mật khẩu không khớp',
+            'code.required' => 'Vui lòng nhập mã xác thực',
+            'code.size' => 'Mã xác thực phải gồm đúng 6 chữ số',
+            'code.regex' => 'Mã xác thực phải gồm đúng 6 chữ số',
         ];
     }
 }

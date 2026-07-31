@@ -4,8 +4,8 @@ namespace App\Repositories;
 
 use App\Enums\UserRole;
 use App\Models\User;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 /**
  * @extends BaseRepository<User>
@@ -18,7 +18,7 @@ class UserRepository extends BaseRepository
     }
 
     /**
-     * @param array{name: string, email: string, password: string} $attributes
+     * @param  array{name: string, email: string, password: string}  $attributes
      */
     public function createCustomer(array $attributes): User
     {
@@ -44,6 +44,26 @@ class UserRepository extends BaseRepository
         return $user;
     }
 
+    public function lockById(int $userId): ?User
+    {
+        /** @var User|null $user */
+        $user = $this->query()->whereKey($userId)->lockForUpdate()->first();
+
+        return $user;
+    }
+
+    public function lockCustomerByEmail(string $email): ?User
+    {
+        /** @var User|null $user */
+        $user = $this->query()
+            ->where('email', $email)
+            ->where('role', UserRole::Customer)
+            ->lockForUpdate()
+            ->first();
+
+        return $user;
+    }
+
     public function findCustomerByPhone(string $phone): ?User
     {
         /** @var User|null $user */
@@ -56,7 +76,7 @@ class UserRepository extends BaseRepository
     }
 
     /**
-     * @param array{name: string, email: string} $attributes
+     * @param  array{name: string, email: string}  $attributes
      */
     public function createCustomerFromOAuth(array $attributes): User
     {
@@ -100,6 +120,14 @@ class UserRepository extends BaseRepository
         ])->save();
 
         return $user->refresh();
+    }
+
+    public function updateRecoveredPassword(User $user, string $password): void
+    {
+        $user->forceFill([
+            'password' => Hash::make($password),
+            'remember_token' => Str::random(60),
+        ])->save();
     }
 
     public function updatePassword(User $user, string $password): void

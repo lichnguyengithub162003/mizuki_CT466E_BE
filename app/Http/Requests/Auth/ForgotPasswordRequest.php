@@ -11,19 +11,28 @@ class ForgotPasswordRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        $this->merge([
+            'email' => strtolower(trim((string) $this->input('email'))),
+        ]);
+    }
+
+    /** @return array<string, array<int, string>> */
     public function rules(): array
     {
         return [
-            'email' => ['required', 'email', 'exists:users,email'],
+            'email' => ['required', 'string', 'email', 'max:255'],
         ];
     }
 
+    /** @return array<string, string> */
     public function messages(): array
     {
         return [
             'email.required' => 'Vui lòng nhập email',
-            'email.email'    => 'Email không hợp lệ',
-            'email.exists'   => 'Email không tồn tại trong hệ thống',
+            'email.email' => 'Email không hợp lệ',
+            'email.max' => 'Email không được vượt quá 255 ký tự',
         ];
     }
 }

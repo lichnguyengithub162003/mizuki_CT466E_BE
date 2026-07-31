@@ -856,6 +856,218 @@
                 }
             }
         },
+        "/api/v1/auth/forgot-password": {
+            "post": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Gửi mã OTP khôi phục mật khẩu qua email",
+                "operationId": "requestPasswordRecoveryOtp",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "customer@example.com"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Đã xử lý yêu cầu gửi OTP",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "data": {
+                                            "properties": {
+                                                "resend_after": {
+                                                    "type": "integer",
+                                                    "example": 60
+                                                },
+                                                "expires_in": {
+                                                    "type": "integer",
+                                                    "example": 300
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Mã xác thực đã được gửi đến email của bạn!"
+                                        },
+                                        "meta": {
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Email không hợp lệ, đang trong thời gian chờ gửi lại hoặc gửi mail thất bại"
+                    },
+                    "429": {
+                        "description": "Vượt giới hạn yêu cầu theo email hoặc IP"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/forgot-password/verify": {
+            "post": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Xác thực mã OTP khôi phục mật khẩu",
+                "operationId": "verifyPasswordRecoveryOtp",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "code"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "customer@example.com"
+                                    },
+                                    "code": {
+                                        "type": "string",
+                                        "pattern": "^[0-9]{6}$",
+                                        "example": "123456",
+                                        "maxLength": 6,
+                                        "minLength": 6
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "OTP hợp lệ",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "data": {
+                                            "properties": {
+                                                "verification_token": {
+                                                    "type": "string",
+                                                    "example": "opaque-64-character-token"
+                                                },
+                                                "expires_in": {
+                                                    "type": "integer",
+                                                    "example": 600
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Xác thực mã thành công!"
+                                        },
+                                        "meta": {
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Mã sai, đã hết hạn, đã dùng hoặc đã vượt số lần thử"
+                    },
+                    "429": {
+                        "description": "Vượt giới hạn xác thực theo email hoặc IP"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/reset-password": {
+            "post": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Đặt lại mật khẩu bằng verification token",
+                "operationId": "resetPasswordWithVerificationToken",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "verification_token",
+                                    "password",
+                                    "password_confirmation"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "customer@example.com"
+                                    },
+                                    "verification_token": {
+                                        "type": "string",
+                                        "maxLength": 64,
+                                        "minLength": 64
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "minLength": 8
+                                    },
+                                    "password_confirmation": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "minLength": 8
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Đặt lại mật khẩu thành công"
+                    },
+                    "422": {
+                        "description": "Validation lỗi hoặc verification token sai, hết hạn, đã dùng, không đúng email"
+                    },
+                    "429": {
+                        "description": "Vượt giới hạn reset theo email hoặc IP"
+                    }
+                }
+            }
+        },
         "/api/v1/cashier/pos/products": {
             "get": {
                 "tags": [
@@ -3102,6 +3314,10 @@
         {
             "name": "Staff Skin Profile",
             "description": "Staff Skin Profile"
+        },
+        {
+            "name": "Authentication",
+            "description": "Authentication"
         },
         {
             "name": "Cashier POS",
