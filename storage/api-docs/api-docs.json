@@ -2485,6 +2485,11 @@
                                         "type": "integer",
                                         "nullable": true
                                     },
+                                    "shipping_quote_token": {
+                                        "description": "Bắt buộc khi delivery",
+                                        "type": "string",
+                                        "nullable": true
+                                    },
                                     "payment_method": {
                                         "type": "string",
                                         "enum": [
@@ -2680,6 +2685,47 @@
                     },
                     "404": {
                         "description": "Không tìm thấy thanh toán"
+                    }
+                }
+            }
+        },
+        "/api/v1/customer/shipping/quote": {
+            "post": {
+                "tags": [
+                    "Customer Shipping"
+                ],
+                "summary": "Lấy báo giá vận chuyển GHN cho giỏ hàng hiện tại",
+                "operationId": "customerShippingQuote",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "address_id"
+                                ],
+                                "properties": {
+                                    "address_id": {
+                                        "type": "integer"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Báo giá vận chuyển thành công"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Sai vai trò"
+                    },
+                    "422": {
+                        "description": "Không thể tính phí vận chuyển"
                     }
                 }
             }
@@ -3084,6 +3130,10 @@
         {
             "name": "Customer Orders",
             "description": "Customer Orders"
+        },
+        {
+            "name": "Customer Shipping",
+            "description": "Customer Shipping"
         },
         {
             "name": "Customer Skin Profile",

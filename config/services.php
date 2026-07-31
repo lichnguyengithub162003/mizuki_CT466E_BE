@@ -42,7 +42,7 @@ return [
     ],
 
     'ghn' => [
-        'base_url' => env('GHN_BASE_URL', 'https://dev-online-gateway.ghn.vn/shiip/public-api/v2'),
+        'base_url' => env('GHN_BASE_URL', 'https://dev-online-gateway.ghn.vn/shiip/public-api'),
         'token' => env('GHN_TOKEN'),
         'shop_id' => env('GHN_SHOP_ID'),
         'timeout_seconds' => (int) env('GHN_TIMEOUT_SECONDS', 10),

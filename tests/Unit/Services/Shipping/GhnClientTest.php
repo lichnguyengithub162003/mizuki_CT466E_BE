@@ -45,7 +45,7 @@ class InspectableGhnClientForTest extends GhnClient
 
 beforeEach(function (): void {
     config()->set([
-        'services.ghn.base_url' => 'https://ghn.test/api/v2',
+        'services.ghn.base_url' => 'https://ghn.test/api',
         'services.ghn.token' => 'test-secret-token',
         'services.ghn.shop_id' => '123456',
         'services.ghn.timeout_seconds' => 12,
@@ -84,9 +84,9 @@ test('missing required configuration fails before an HTTP request', function (st
 })->with(['base_url', 'token']);
 
 test('normalizes URL slashes and extracts successful response data', function (): void {
-    config()->set('services.ghn.base_url', 'https://ghn.test/api/v2///');
+    config()->set('services.ghn.base_url', 'https://ghn.test/api///');
     Http::fake([
-        'https://ghn.test/api/v2/master-data/province' => Http::response(ghnSuccess([
+        'https://ghn.test/api/master-data/province' => Http::response(ghnSuccess([
             ['ProvinceID' => 1, 'ProvinceName' => 'Cần Thơ'],
         ])),
     ]);
@@ -97,7 +97,7 @@ test('normalizes URL slashes and extracts successful response data', function ()
         ['ProvinceID' => 1, 'ProvinceName' => 'Cần Thơ'],
     ]);
     Http::assertSent(fn (Request $request): bool => $request->url()
-        === 'https://ghn.test/api/v2/master-data/province');
+        === 'https://ghn.test/api/master-data/province');
 });
 
 test('sends token and JSON headers while omitting ShopId by default', function (): void {
@@ -150,9 +150,9 @@ test('sends district and ward identifiers as JSON request bodies', function (): 
     $client->districts(91);
     $client->wards(916);
 
-    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://ghn.test/api/v2/master-data/district'
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://ghn.test/api/master-data/district'
         && $request['province_id'] === 91);
-    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://ghn.test/api/v2/master-data/ward'
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://ghn.test/api/master-data/ward'
         && $request['district_id'] === 916);
 });
 
@@ -354,3 +354,58 @@ test('the GHN exception itself redacts configured secrets from provider context'
     'token' => ['test-secret-token'],
     'shop ID' => ['123456'],
 ]);
+
+test('available services sends the documented route payload without a ShopId header', function (): void {
+    Http::fake(['*' => Http::response(ghnSuccess([
+        ['service_id' => 53320, 'short_name' => 'Hàng nhẹ', 'service_type_id' => 2],
+    ]))]);
+
+    $services = app(GhnClient::class)->availableServices(885, 1447, 1442);
+
+    expect($services[0]['service_id'])->toBe(53320);
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://ghn.test/api/v2/shipping-order/available-services'
+        && $request['shop_id'] === 885
+        && $request['from_district'] === 1447
+        && $request['to_district'] === 1442
+        && ! $request->hasHeader('ShopId'));
+});
+
+test('shipping fee sends ShopId and extracts validated numeric fee fields', function (): void {
+    Http::fake(['*' => Http::response(ghnSuccess([
+        'total' => 36_300,
+        'service_fee' => 35_000,
+        'insurance_fee' => 1_300,
+    ]))]);
+    $payload = [
+        'service_id' => 53320,
+        'to_district_id' => 1442,
+        'to_ward_code' => '21012',
+        'weight' => 500,
+    ];
+
+    $fee = app(GhnClient::class)->calculateShippingFee($payload);
+
+    expect($fee['total'])->toBe(36_300)
+        ->and($fee['service_fee'])->toBe(35_000)
+        ->and($fee['expected_delivery_time'])->toBeNull();
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://ghn.test/api/v2/shipping-order/fee'
+        && $request->hasHeader('ShopId', '123456')
+        && $request['service_id'] === 53320
+        && $request['weight'] === 500);
+});
+
+test('shipping operations reject malformed service and fee data safely', function (string $operation): void {
+    Http::fake(['*' => Http::response(ghnSuccess(
+        $operation === 'services'
+            ? [['service_id' => 'invalid', 'short_name' => 'Bad', 'service_type_id' => 2]]
+            : ['total' => 'invalid'],
+    ))]);
+
+    $exception = captureGhnException(fn (): array => $operation === 'services'
+        ? app(GhnClient::class)->availableServices(885, 1447, 1442)
+        : app(GhnClient::class)->calculateShippingFee(['weight' => 500]));
+
+    expect($exception->providerCode)->toBe('malformed_data')
+        ->and($exception->getMessage())->not->toContain('test-secret-token')
+        ->and($exception->getMessage())->not->toContain('123456');
+})->with(['services', 'fee']);

@@ -37,6 +37,15 @@ class OrderRepository extends BaseRepository
             ->first();
     }
 
+    public function lockAddressForUser(int $addressId, int $userId): ?UserAddress
+    {
+        return $this->addresses->newQuery()
+            ->whereKey($addressId)
+            ->where('user_id', $userId)
+            ->lockForUpdate()
+            ->first();
+    }
+
     public function lockInventory(int $branchId, int $variantId): ?BranchInventory
     {
         return $this->inventories->newQuery()
@@ -77,7 +86,7 @@ class OrderRepository extends BaseRepository
     }
 
     /**
-     * @param array<string, mixed> $filters
+     * @param  array<string, mixed>  $filters
      * @return LengthAwarePaginator<int, Order>
      */
     public function paginateForUser(int $userId, array $filters, int $perPage): LengthAwarePaginator
@@ -140,7 +149,7 @@ class OrderRepository extends BaseRepository
     }
 
     /**
-     * @param array<string, mixed> $filters
+     * @param  array<string, mixed>  $filters
      * @return LengthAwarePaginator<int, Order>
      */
     public function paginateForAdmin(
@@ -220,7 +229,7 @@ class OrderRepository extends BaseRepository
     /**
      * Scope internal access at query level to prevent cross-branch disclosure.
      *
-     * @param Builder<Order> $query
+     * @param  Builder<Order>  $query
      * @return Builder<Order>
      */
     private function adminScope(Builder $query, UserRole $role, ?int $branchId): Builder

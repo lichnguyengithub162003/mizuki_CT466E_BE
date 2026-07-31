@@ -33,6 +33,7 @@ class CartRepository extends BaseRepository
             ->where('user_id', $userId)
             ->lockForUpdate()
             ->firstOrFail();
+        $cart->items()->lockForUpdate()->get();
 
         return $cart;
     }
@@ -62,10 +63,10 @@ class CartRepository extends BaseRepository
     public function loadDetails(Cart $cart): Cart
     {
         return $cart->load([
-            'branch:id,name,address',
+            'branch:id,name,address,ghn_district_id,ghn_ward_code,is_active',
             'promotion:id,code,name,discount_type,discount_value,max_discount_amount,minimum_order_amount',
             'items' => fn (Builder|HasMany $itemQuery): Builder|HasMany => $itemQuery->orderBy('id'),
-            'items.productVariant.product:id,name,slug',
+            'items.productVariant.product:id,name,slug,is_active,updated_at',
             'items.productVariant.product.images' => fn (Builder|HasMany $imageQuery): Builder|HasMany => $imageQuery
                 ->where('is_primary', true)
                 ->orderBy('sort_order'),

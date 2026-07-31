@@ -70,6 +70,104 @@ class GhnClient
         );
     }
 
+    /** @return list<array{service_id: int, short_name: string, service_type_id: int}> */
+    public function availableServices(
+        int $shopId,
+        int $fromDistrictId,
+        int $toDistrictId,
+    ): array {
+        $data = $this->request(
+            operation: 'available_services',
+            method: 'POST',
+            endpoint: 'v2/shipping-order/available-services',
+            payload: [
+                'shop_id' => $shopId,
+                'from_district' => $fromDistrictId,
+                'to_district' => $toDistrictId,
+            ],
+            safeToRetry: true,
+        );
+
+        if (! array_is_list($data)) {
+            throw new GhnApiException('available_services', providerCode: 'malformed_data');
+        }
+
+        return array_map(function (mixed $service): array {
+            if (! is_array($service)
+                || ! $this->isPositiveInteger($service['service_id'] ?? null)
+                || ! $this->isPositiveInteger($service['service_type_id'] ?? null)
+                || ! is_scalar($service['short_name'] ?? null)) {
+                throw new GhnApiException('available_services', providerCode: 'malformed_data');
+            }
+
+            return [
+                'service_id' => (int) $service['service_id'],
+                'short_name' => trim((string) $service['short_name']),
+                'service_type_id' => (int) $service['service_type_id'],
+            ];
+        }, $data);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, int|string|null>
+     */
+    public function calculateShippingFee(array $payload): array
+    {
+        $data = $this->request(
+            operation: 'calculate_shipping_fee',
+            method: 'POST',
+            endpoint: 'v2/shipping-order/fee',
+            payload: $payload,
+            requiresShopId: true,
+            safeToRetry: true,
+        );
+
+        if (array_is_list($data) || ! $this->isNonNegativeInteger($data['total'] ?? null)) {
+            throw new GhnApiException('calculate_shipping_fee', providerCode: 'malformed_data');
+        }
+
+        $numericFields = [
+            'total',
+            'service_fee',
+            'insurance_fee',
+            'pick_station_fee',
+            'coupon_value',
+            'r2s_fee',
+            'document_return',
+            'double_check',
+            'cod_fee',
+            'pick_remote_areas_fee',
+            'deliver_remote_areas_fee',
+            'cod_failed_fee',
+        ];
+        $normalized = [];
+
+        foreach ($numericFields as $field) {
+            if (! array_key_exists($field, $data)) {
+                continue;
+            }
+
+            if (! $this->isNonNegativeInteger($data[$field])) {
+                throw new GhnApiException('calculate_shipping_fee', providerCode: 'malformed_data');
+            }
+
+            $normalized[$field] = (int) $data[$field];
+        }
+
+        $expectedDeliveryTime = $data['expected_delivery_time'] ?? null;
+
+        if ($expectedDeliveryTime !== null && ! is_scalar($expectedDeliveryTime)) {
+            throw new GhnApiException('calculate_shipping_fee', providerCode: 'malformed_data');
+        }
+
+        $normalized['expected_delivery_time'] = $expectedDeliveryTime === null
+            ? null
+            : trim((string) $expectedDeliveryTime);
+
+        return $normalized;
+    }
+
     /**
      * Reusable provider request foundation for later shipping operations.
      *
@@ -267,6 +365,18 @@ class GhnClient
         }
 
         return is_int($providerCode) ? $providerCode : $value;
+    }
+
+    private function isPositiveInteger(mixed $value): bool
+    {
+        return is_int($value) && $value > 0
+            || is_string($value) && ctype_digit($value) && (int) $value > 0;
+    }
+
+    private function isNonNegativeInteger(mixed $value): bool
+    {
+        return is_int($value) && $value >= 0
+            || is_string($value) && ctype_digit($value);
     }
 
     private function assertConfigured(string $operation, bool $requiresShopId): void

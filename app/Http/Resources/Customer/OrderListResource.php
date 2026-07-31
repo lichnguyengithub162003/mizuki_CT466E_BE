@@ -20,6 +20,7 @@ class OrderListResource extends JsonResource
             'item_count' => (int) $this->items_count,
             'subtotal' => $this->subtotal,
             'discount_amount' => $this->discount_amount,
+            'shipping_fee' => $this->shipping_fee,
             'total_amount' => $this->total_amount,
             'placed_at' => $this->placed_at?->toISOString(),
             'created_at' => $this->created_at?->toISOString(),

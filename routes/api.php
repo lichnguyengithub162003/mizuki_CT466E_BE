@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\V1\Customer\FavoriteController;
 use App\Http\Controllers\Api\V1\Customer\OrderController;
 use App\Http\Controllers\Api\V1\Customer\OrderPaymentController;
 use App\Http\Controllers\Api\V1\Customer\ProfileController;
+use App\Http\Controllers\Api\V1\Customer\ShippingController;
 use App\Http\Controllers\Api\V1\Customer\SkinProfileController as CustomerSkinProfileController;
 use App\Http\Controllers\Api\V1\Customer\WalletController;
 use App\Http\Controllers\Api\V1\LocationController;
@@ -115,6 +116,10 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
             Route::delete('promotion', [CartPromotionController::class, 'destroy'])->name('promotion.destroy');
         });
 
+        // Shipping quote
+        Route::post('shipping/quote', [ShippingController::class, 'quote'])
+            ->middleware('role:customer')
+            ->name('shipping.quote');
         // Orders
         Route::prefix('orders')->name('orders.')->middleware('role:customer')->group(function (): void {
             Route::get('/', [OrderController::class, 'index'])->name('index');

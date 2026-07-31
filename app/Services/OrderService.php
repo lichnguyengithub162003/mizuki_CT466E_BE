@@ -17,6 +17,7 @@ use App\Models\UserAddress;
 use App\Repositories\CartRepository;
 use App\Repositories\OrderRepository;
 use App\Repositories\PromotionRepository;
+use App\Services\Shipping\ShippingQuoteService;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
@@ -32,14 +33,32 @@ class OrderService extends BaseService
         private readonly PromotionService $promotionService,
         private readonly PaymentService $paymentService,
         private readonly WalletService $walletService,
+        private readonly ShippingQuoteService $shippingQuotes,
     ) {}
 
-    /** @param array{delivery_method: string, address_id?: int|null, payment_method: string} $data */
+    /**
+     * @param array{
+     *     delivery_method: string,
+     *     address_id?: int|null,
+     *     shipping_quote_token?: string,
+     *     payment_method: string
+     * } $data
+     */
     public function checkout(User $user, array $data): Order
     {
         Gate::forUser($user)->authorize('create', Order::class);
+        $quoteToken = $data['delivery_method'] === 'delivery'
+            ? (string) $data['shipping_quote_token']
+            : null;
+        $quote = $quoteToken === null
+            ? null
+            : $this->shippingQuotes->loadForCheckout(
+                $user,
+                (int) $data['address_id'],
+                $quoteToken,
+            );
 
-        $order = $this->orders->transaction(function () use ($user, $data): Order {
+        $order = $this->orders->transaction(function () use ($user, $data, $quote): Order {
             $this->carts->lockForCheckout($user->id);
             $cart = $this->cartService->getForUser($user);
 
@@ -51,7 +70,14 @@ class OrderService extends BaseService
                 $this->checkoutError('branch_id', 'Vui lòng chọn chi nhánh trước khi đặt hàng');
             }
 
-            $address = $this->resolveAddress($user, $data);
+            $address = $this->resolveAddress($user, $data, lock: true);
+            $shippingFee = 0;
+
+            if ($quote !== null && $address !== null) {
+                $this->shippingQuotes->assertMatches($quote, $user, $cart, $address);
+                $shippingFee = (int) $quote['shipping_fee'];
+            }
+
             $promotion = $this->resolvePromotion($cart, $user);
             $discountAmount = $promotion === null
                 ? 0
@@ -59,7 +85,7 @@ class OrderService extends BaseService
                     $promotion,
                     (int) $cart->total_before_discount,
                 );
-            $totalAmount = (int) $cart->total_before_discount - $discountAmount;
+            $totalAmount = (int) $cart->total_before_discount - $discountAmount + $shippingFee;
             $itemSnapshots = [];
             $inventoryReservations = [];
 
@@ -113,7 +139,7 @@ class OrderService extends BaseService
                 'shipping_address' => $address === null ? null : $this->formatAddress($address),
                 'subtotal' => (int) $cart->total_before_discount,
                 'discount_amount' => $discountAmount,
-                'shipping_fee' => 0,
+                'shipping_fee' => $shippingFee,
                 'total_amount' => $totalAmount,
                 'placed_at' => now(),
             ]);
@@ -138,6 +164,10 @@ class OrderService extends BaseService
 
             return $this->orders->loadDetails($order);
         });
+
+        if ($quoteToken !== null) {
+            $this->shippingQuotes->consume($quoteToken);
+        }
 
         OrderPlaced::dispatch($order);
 
@@ -210,13 +240,15 @@ class OrderService extends BaseService
     }
 
     /** @param array<string, mixed> $data */
-    private function resolveAddress(User $user, array $data): ?UserAddress
+    private function resolveAddress(User $user, array $data, bool $lock = false): ?UserAddress
     {
         if ($data['delivery_method'] === 'pickup') {
             return null;
         }
 
-        $address = $this->orders->findAddressForUser((int) $data['address_id'], $user->id);
+        $address = $lock
+            ? $this->orders->lockAddressForUser((int) $data['address_id'], $user->id)
+            : $this->orders->findAddressForUser((int) $data['address_id'], $user->id);
 
         if ($address === null) {
             $this->checkoutError('address_id', 'Địa chỉ giao hàng không tồn tại hoặc không thuộc tài khoản của bạn');

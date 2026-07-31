@@ -23,6 +23,7 @@ use App\Models\WalletTransaction;
 use App\Services\PaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 uses(RefreshDatabase::class);
@@ -115,6 +116,7 @@ function createExistingCustomerOrder(User $user, Branch $branch, array $override
 test('customer can create an order from a valid cart and cart items are cleared', function (): void {
     $context = createOrderCheckoutContext();
     Event::fake([OrderPlaced::class]);
+
     $this->actingAs($context['user']);
 
     $response = $this->postJson('/api/v1/customer/orders', [
@@ -158,12 +160,39 @@ test('delivery checkout snapshots an address belonging to the customer', functio
         'ward' => 'An Khánh',
         'hamlet' => 'Tổ 3',
         'address_line' => '123 Đường 3/2',
+        'province_code' => 'CT',
+        'ghn_province_id' => 220,
+        'ghn_district_id' => 1444,
+        'ghn_ward_code' => '21010',
+    ]);
+    config()->set([
+        'services.ghn.base_url' => 'https://ghn.test/shiip/public-api/v2',
+        'services.ghn.token' => 'checkout-token',
+        'services.ghn.shop_id' => '123456',
+    ]);
+    Http::fake([
+        '*/shipping-order/available-services' => Http::response([
+            'code' => 200,
+            'data' => [[
+                'service_id' => 53320,
+                'short_name' => 'Light',
+                'service_type_id' => 2,
+            ]],
+        ]),
+        '*/shipping-order/fee' => Http::response([
+            'code' => 200,
+            'data' => ['total' => 30_000],
+        ]),
     ]);
     $this->actingAs($context['user']);
+    $quoteToken = $this->postJson('/api/v1/customer/shipping/quote', [
+        'address_id' => $address->id,
+    ])->assertOk()->json('data.quote_token');
 
     $response = $this->postJson('/api/v1/customer/orders', [
         'delivery_method' => 'delivery',
         'address_id' => $address->id,
+        'shipping_quote_token' => $quoteToken,
         'payment_method' => 'vnpay',
     ])
         ->assertCreated()
@@ -176,7 +205,7 @@ test('delivery checkout snapshots an address belonging to the customer', functio
         'user_id' => $context['user']->id,
         'method' => 'vnpay',
         'status' => 'pending',
-        'amount' => 300_000,
+        'amount' => 330_000,
     ]);
 });
 
@@ -199,6 +228,7 @@ test('checkout with a promotion records real usage and increments the cached cou
     ]);
     $promotion->branches()->attach($context['branch']->id);
     $context['cart']->update(['promotion_id' => $promotion->id]);
+
     $this->actingAs($context['user']);
 
     $response = $this->postJson('/api/v1/customer/orders', [
@@ -232,6 +262,7 @@ test('wallet checkout creates and pays the order atomically when balance is suff
         'user_id' => $context['user']->id,
         'balance' => 500_000,
     ]);
+
     $this->actingAs($context['user']);
 
     $response = $this->postJson('/api/v1/customer/orders', [
