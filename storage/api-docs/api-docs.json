@@ -1068,6 +1068,83 @@
                 }
             }
         },
+        "/api/v1/auth/google/redirect": {
+            "get": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Tạo URL đăng nhập Google",
+                "operationId": "createGoogleOAuthRedirect",
+                "parameters": [
+                    {
+                        "name": "redirect",
+                        "in": "query",
+                        "description": "Đường dẫn frontend tương đối sau đăng nhập; phải bắt đầu bằng một dấu /",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "/account"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Tạo URL Google thành công"
+                    },
+                    "429": {
+                        "description": "Vượt giới hạn đăng nhập"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/google/callback": {
+            "get": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Hoàn tất đăng nhập Google và chuyển trình duyệt về frontend",
+                "operationId": "completeGoogleOAuthCallback",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "state",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "error",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Thành công: status=success. Thất bại: oauth_error là google_cancelled, google_invalid_callback, google_unverified_email, google_staff_account hoặc google_auth_failed",
+                        "headers": {
+                            "Location": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "uri"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/cashier/pos/products": {
             "get": {
                 "tags": [

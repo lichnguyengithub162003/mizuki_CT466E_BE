@@ -15,7 +15,7 @@ uses(RefreshDatabase::class);
 beforeEach(function (): void {
     Cache::flush();
     config()->set([
-        'password_recovery.driver' => 'local',
+        'app.env' => 'testing',
         'password_recovery.demo_code' => '123456',
         'password_recovery.otp_ttl_minutes' => 5,
         'password_recovery.max_attempts' => 5,

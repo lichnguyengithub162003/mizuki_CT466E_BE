@@ -8,12 +8,12 @@ use App\Models\PasswordRecoveryChallenge;
 use App\Repositories\PasswordRecoveryChallengeRepository;
 use App\Repositories\UserRepository;
 use App\Services\BaseService;
+use App\Support\Auth\PasswordRecoveryOtpGenerator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use LogicException;
 use Throwable;
 
 class PasswordRecoveryService extends BaseService
@@ -21,6 +21,7 @@ class PasswordRecoveryService extends BaseService
     public function __construct(
         private readonly UserRepository $users,
         private readonly PasswordRecoveryChallengeRepository $challenges,
+        private readonly PasswordRecoveryOtpGenerator $otpGenerator,
     ) {}
 
     /** @return array{resend_after: int, expires_in: int} */
@@ -48,7 +49,7 @@ class PasswordRecoveryService extends BaseService
             return $publicResult;
         }
 
-        $code = $this->generateOtp();
+        $code = $this->otpGenerator->generate();
         $result = $this->challenges->transaction(function () use (
             $user,
             $email,
@@ -252,21 +253,6 @@ class PasswordRecoveryService extends BaseService
                 ]);
             }
         });
-    }
-
-    private function generateOtp(): string
-    {
-        if ((string) config('password_recovery.driver', 'local') !== 'local') {
-            return str_pad((string) random_int(0, 999_999), 6, '0', STR_PAD_LEFT);
-        }
-
-        $demoCode = trim((string) config('password_recovery.demo_code', '123456'));
-
-        if (preg_match('/\A[0-9]{6}\z/', $demoCode) !== 1) {
-            throw new LogicException('Local password recovery demo code is invalid.');
-        }
-
-        return $demoCode;
     }
 
     private function normalizeEmail(string $email): string

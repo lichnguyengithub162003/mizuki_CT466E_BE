@@ -6,7 +6,6 @@ use App\Http\Controllers\Api\V1\Admin\PromotionController as AdminPromotionContr
 use App\Http\Controllers\Api\V1\Admin\RefundController as AdminRefundController;
 use App\Http\Controllers\Api\V1\Admin\SkinProfileController as AdminSkinProfileController;
 use App\Http\Controllers\Api\V1\Auth\CustomerAuthController;
-use App\Http\Controllers\Api\V1\Auth\GoogleAuthController;
 use App\Http\Controllers\Api\V1\Cashier\PosController;
 use App\Http\Controllers\Api\V1\Catalog\BrandController;
 use App\Http\Controllers\Api\V1\Catalog\CategoryController;
@@ -43,9 +42,11 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
             ->name('staff-login');
         Route::get('me', [CustomerAuthController::class, 'me'])
             ->middleware('auth:sanctum')
+            ->block(10, 10)
             ->name('me');
         Route::post('logout', [CustomerAuthController::class, 'logout'])
             ->middleware('auth:sanctum')
+            ->block(10, 10)
             ->name('logout');
         Route::post('forgot-password', [CustomerAuthController::class, 'forgotPassword'])
             ->middleware('throttle:password.recovery.request')
@@ -56,12 +57,7 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
         Route::post('reset-password', [CustomerAuthController::class, 'resetPassword'])
             ->middleware('throttle:password.recovery.reset')
             ->name('reset-password');
-        Route::get('google/redirect', [GoogleAuthController::class, 'redirect'])
-            ->middleware('throttle:auth.login')
-            ->name('google.redirect');
-        Route::get('google/callback', [GoogleAuthController::class, 'callback'])
-            ->middleware('throttle:auth.login')
-            ->name('google.callback');
+
     });
 
     // Customer routes

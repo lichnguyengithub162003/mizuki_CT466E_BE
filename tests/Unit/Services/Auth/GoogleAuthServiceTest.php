@@ -1,12 +1,12 @@
 <?php
 
 use App\Enums\UserRole;
+use App\Exceptions\Auth\GoogleOAuthException;
 use App\Models\SocialAccount;
 use App\Models\User;
 use App\Repositories\SocialAccountRepository;
 use App\Repositories\UserRepository;
 use App\Services\Auth\GoogleAuthService;
-use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Laravel\Socialite\Contracts\Factory as SocialiteFactory;
@@ -28,8 +28,8 @@ function googleAuthServiceWithUser(SocialiteUser $googleUser): GoogleAuthService
 
     return new GoogleAuthService(
         socialite: $socialite,
-        users: new UserRepository(new User()),
-        socialAccounts: new SocialAccountRepository(new SocialAccount()),
+        users: new UserRepository(new User),
+        socialAccounts: new SocialAccountRepository(new SocialAccount),
     );
 }
 
@@ -46,7 +46,7 @@ function verifiedGoogleUser(array $attributes = []): SocialiteUser
 
 function googleCallbackRequest(): Request
 {
-    $request = Request::create('/api/v1/auth/google/callback', 'GET');
+    $request = Request::create('/api/v1/auth/google/callback?code=valid-code&state=valid-state', 'GET');
     $request->setLaravelSession(app('session.store'));
 
     return $request;
@@ -122,13 +122,23 @@ test('it rejects google login for internal staff email accounts', function (): v
     ]);
     $service = googleAuthServiceWithUser(verifiedGoogleUser());
 
-    $service->handleCallback(googleCallbackRequest());
-})->throws(AuthenticationException::class, 'Tài khoản không có quyền đăng nhập khu vực khách hàng!');
+    try {
+        $service->handleCallback(googleCallbackRequest());
+        $this->fail('Expected GoogleOAuthException was not thrown.');
+    } catch (GoogleOAuthException $exception) {
+        expect($exception->safeCode)->toBe(GoogleOAuthException::STAFF_ACCOUNT);
+    }
+});
 
 test('it rejects google accounts without a verified email', function (): void {
     $service = googleAuthServiceWithUser(verifiedGoogleUser([
         'email_verified' => false,
     ]));
 
-    $service->handleCallback(googleCallbackRequest());
-})->throws(AuthenticationException::class, 'Không thể xác thực email Google');
+    try {
+        $service->handleCallback(googleCallbackRequest());
+        $this->fail('Expected GoogleOAuthException was not thrown.');
+    } catch (GoogleOAuthException $exception) {
+        expect($exception->safeCode)->toBe(GoogleOAuthException::UNVERIFIED_EMAIL);
+    }
+});

@@ -29,6 +29,10 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by($email.'|'.$request->ip());
         });
 
+        RateLimiter::for('auth.oauth', function (Request $request): Limit {
+            return Limit::perMinute(10)->by('oauth|'.$request->ip());
+        });
+
         RateLimiter::for('auth.register', function (Request $request): Limit {
             return Limit::perMinute(3)->by((string) $request->ip());
         });

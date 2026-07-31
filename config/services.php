@@ -39,6 +39,8 @@ return [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
         'redirect' => env('GOOGLE_REDIRECT_URI'),
+        'frontend_callback_path' => env('GOOGLE_FRONTEND_CALLBACK_PATH', '/auth/google/callback'),
+        'frontend_login_path' => env('GOOGLE_FRONTEND_LOGIN_PATH', '/login'),
     ],
 
     'ghn' => [
