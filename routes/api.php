@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Admin\PromotionController as AdminPromotionContr
 use App\Http\Controllers\Api\V1\Admin\RefundController as AdminRefundController;
 use App\Http\Controllers\Api\V1\Admin\SkinProfileController as AdminSkinProfileController;
 use App\Http\Controllers\Api\V1\Auth\CustomerAuthController;
+use App\Http\Controllers\Api\V1\BranchController;
 use App\Http\Controllers\Api\V1\Cashier\PosController;
 use App\Http\Controllers\Api\V1\Catalog\BrandController;
 use App\Http\Controllers\Api\V1\Catalog\CategoryController;
@@ -237,6 +238,10 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
         Route::get('provinces/{provinceId}/districts', [LocationController::class, 'districts'])->name('districts');
         Route::get('districts/{districtId}/wards', [LocationController::class, 'wards'])->name('wards');
     });
+
+    // Public branch routes
+
+    Route::get('branches', [BranchController::class, 'index'])->name('branches.index');
 
     // Public clinic routes
     Route::prefix('clinics')->name('clinics.')->group(function (): void {

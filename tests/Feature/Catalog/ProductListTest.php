@@ -11,7 +11,7 @@ use Illuminate\Support\Str;
 uses(RefreshDatabase::class);
 
 /**
- * @param list<int|array{price: int, sale_price: int|null}> $prices
+ * @param  list<int|array{price: int, sale_price: int|null}>  $prices
  */
 function createProductForListing(
     Category $category,
@@ -39,7 +39,7 @@ function createProductForListing(
 
         ProductVariant::query()->create([
             'product_id' => $product->id,
-            'name' => ($index + 1) * 50 . ' ml',
+            'name' => ($index + 1) * 50 .' ml',
             'sku' => 'TEST-'.strtoupper(Str::slug($slug, '')).'-'.($index + 1),
             'price' => $price,
             'sale_price' => $salePrice,
@@ -113,22 +113,35 @@ test('products endpoint returns list resources with pagination metadata', functi
         ]);
 });
 
-test('category filter includes products from descendant categories', function (): void {
-    $parent = createProductListCategory('Chăm sóc da');
-    $child = createProductListCategory('Serum', $parent->id);
-    $other = createProductListCategory('Trang điểm');
-    $brand = createProductListBrand('Vichy');
+test('category filter includes products from descendants at every depth', function (): void {
+    $parent = createProductListCategory('Parent category');
+    $child = createProductListCategory('Child category', $parent->id);
+    $grandchild = createProductListCategory('Grandchild category', $child->id);
+    $other = createProductListCategory('Unrelated category');
+    $brand = createProductListBrand('Hierarchy brand');
 
-    createProductForListing($parent, $brand, 'Sản phẩm danh mục cha', [100_000]);
-    createProductForListing($child, $brand, 'Sản phẩm danh mục con', [200_000]);
-    createProductForListing($other, $brand, 'Sản phẩm ngoài danh mục', [300_000]);
+    createProductForListing($parent, $brand, 'Parent product', [100_000]);
+    createProductForListing($child, $brand, 'Child product', [200_000]);
+    createProductForListing($grandchild, $brand, 'Grandchild product', [250_000]);
+    createProductForListing($other, $brand, 'Unrelated product', [300_000]);
 
-    $this->getJson("/api/v1/products?category_id={$parent->id}")
+    $this->getJson("/api/v1/products?category_id={$parent->id}&per_page=2")
         ->assertOk()
         ->assertJsonCount(2, 'data')
-        ->assertJsonMissing(['name' => 'Sản phẩm ngoài danh mục']);
-});
+        ->assertJsonPath('meta.pagination.total', 3)
+        ->assertJsonMissing(['name' => 'Unrelated product']);
 
+    $this->getJson("/api/v1/products?category_id={$child->id}")
+        ->assertOk()
+        ->assertJsonCount(2, 'data')
+        ->assertJsonMissing(['name' => 'Parent product'])
+        ->assertJsonMissing(['name' => 'Unrelated product']);
+
+    $this->getJson("/api/v1/products?category_id={$grandchild->id}")
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.name', 'Grandchild product');
+});
 test('product category returns the actual parent id for a child category', function (): void {
     $parent = createProductListCategory('Chăm sóc da mặt');
     $child = createProductListCategory('Tinh chất dưỡng da', $parent->id);

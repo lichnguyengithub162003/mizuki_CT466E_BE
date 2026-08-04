@@ -2,11 +2,15 @@
 
 namespace App\Repositories\Import;
 
+use App\Enums\BranchType;
+use App\Models\Branch;
+use App\Models\BranchInventory;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\ProductVariant;
+use App\Services\Import\ProductImageImportService;
 use Closure;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
@@ -14,9 +18,100 @@ use Illuminate\Support\Facades\DB;
 
 class ProductImportRepository
 {
+    public function disableQueryLog(): void
+    {
+        DB::connection()->disableQueryLog();
+    }
+
     public function transaction(Closure $callback): mixed
     {
         return DB::transaction($callback);
+    }
+
+    /**
+     * @return Collection<int, Product>
+     */
+    public function sourceProductsAfter(string $source, int $afterId, int $limit): Collection
+    {
+        return Product::query()
+            ->withTrashed()
+            ->where('source', $source)
+            ->whereNotNull('external_id')
+            ->where('id', '>', $afterId)
+            ->orderBy('id')
+            ->limit($limit)
+            ->get(['id', 'name', 'slug', 'source', 'external_id']);
+    }
+
+    /**
+     * @param  list<string>  $slugs
+     * @return array<string, int>
+     */
+    public function slugOwnerIds(array $slugs): array
+    {
+        if ($slugs === []) {
+            return [];
+        }
+
+        return Product::query()
+            ->withTrashed()
+            ->whereIn('slug', array_values(array_unique($slugs)))
+            ->pluck('id', 'slug')
+            ->map(static fn (mixed $id): int => (int) $id)
+            ->all();
+    }
+
+    /**
+     * @param  array<int, string>  $updates
+     * @return array{updated: int, unchanged: int, conflicts: int}
+     */
+    public function updateImportedProductSlugs(string $source, array $updates): array
+    {
+        if ($updates === []) {
+            return ['updated' => 0, 'unchanged' => 0, 'conflicts' => 0];
+        }
+
+        return $this->transaction(function () use ($source, $updates): array {
+            $products = Product::query()
+                ->withTrashed()
+                ->where('source', $source)
+                ->whereIn('id', array_keys($updates))
+                ->lockForUpdate()
+                ->get(['id', 'slug'])
+                ->keyBy('id');
+            $owners = $this->slugOwnerIds(array_values($updates));
+            $result = ['updated' => 0, 'unchanged' => 0, 'conflicts' => 0];
+
+            foreach ($updates as $productId => $slug) {
+                /** @var Product|null $product */
+                $product = $products->get($productId);
+
+                if ($product === null) {
+                    $result['conflicts']++;
+
+                    continue;
+                }
+
+                if ($product->slug === $slug) {
+                    $result['unchanged']++;
+
+                    continue;
+                }
+
+                if (isset($owners[$slug]) && $owners[$slug] !== $productId) {
+                    $result['conflicts']++;
+
+                    continue;
+                }
+
+                Product::withoutTimestamps(
+                    fn (): int => Product::query()->whereKey($productId)->update(['slug' => $slug]),
+                );
+                $result['updated']++;
+            }
+
+            return $result;
+        });
     }
 
     /**
@@ -224,7 +319,14 @@ class ProductImportRepository
         array &$counters,
     ): Product {
         $product = Product::query()->withTrashed()
-            ->where('slug', $record['product_slug'])->lockForUpdate()->first();
+            ->where(function ($query) use ($record): void {
+                $query->where(function ($identity) use ($record): void {
+                    $identity->where('source', $record['product']['source'])
+                        ->where('external_id', $record['product']['external_id']);
+                })->orWhere('slug', $record['product_slug']);
+            })
+            ->lockForUpdate()
+            ->first();
         $attributes = $record['product'] + [
             'brand_id' => $brand->id,
             'category_id' => $category->id,
@@ -239,6 +341,13 @@ class ProductImportRepository
 
         $restored = $product->trashed();
         unset($attributes['is_featured']);
+
+        if (! $restored && $this->matches($product, $attributes)) {
+            $counters['unchanged']++;
+
+            return $product;
+        }
+
         $product->fill($attributes);
 
         if ($restored) {
@@ -313,13 +422,40 @@ class ProductImportRepository
             ->where('product_id', $product->id)
             ->whereNull('product_variant_id')
             ->lockForUpdate()
-            ->get()
-            ->keyBy('image_url');
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
+        $existingByUrl = $existing->keyBy('image_url');
+        $incomingImages = collect($record['images'])->values();
+        $incomingRealImages = $incomingImages
+            ->reject(fn (array $image): bool => $image['image_url'] === ProductImageImportService::FALLBACK_URL)
+            ->values();
+        $existingRealImages = $existing
+            ->reject(fn (ProductImage $image): bool => $image->image_url === ProductImageImportService::FALLBACK_URL)
+            ->values();
+
+        if ($incomingRealImages->isNotEmpty()) {
+            $desiredImages = $incomingRealImages->map(
+                static fn (array $image, int $index): array => array_merge($image, ['is_primary' => $index === 0]),
+            );
+            $preferredPrimaryUrl = (string) $desiredImages->first()['image_url'];
+        } elseif ($existingRealImages->isNotEmpty()) {
+            // A skipped or failed image copy must not restore a placeholder over existing real media.
+            $desiredImages = collect();
+            $preferredPrimaryUrl = (string) ($existingRealImages->firstWhere('is_primary', true)
+                ?? $existingRealImages->first())->image_url;
+        } else {
+            $desiredImages = $incomingImages
+                ->where('image_url', ProductImageImportService::FALLBACK_URL)
+                ->take(1)
+                ->values();
+            $preferredPrimaryUrl = ProductImageImportService::FALLBACK_URL;
+        }
         $sourceUrls = [];
 
-        foreach ($record['images'] as $attributes) {
+        foreach ($desiredImages as $attributes) {
             $sourceUrls[] = $attributes['image_url'];
-            $image = $existing->get($attributes['image_url']);
+            $image = $existingByUrl->get($attributes['image_url']);
 
             if ($image === null) {
                 ProductImage::query()->create($attributes + [
@@ -341,7 +477,161 @@ class ProductImportRepository
             }
         }
 
-        $counters['stale_skipped'] += $existing->keys()->diff($sourceUrls)->count();
+        foreach ($existingByUrl->keys()->diff($sourceUrls) as $staleUrl) {
+            $isSourceHosted = in_array(
+                $staleUrl,
+                $record['metadata']['source_image_urls'] ?? [],
+                true,
+            );
+
+            if ($product->source === 'hasaki' && $isSourceHosted) {
+                $existingByUrl->get($staleUrl)?->delete();
+                $counters['updated']++;
+
+                continue;
+            }
+
+            $counters['stale_skipped']++;
+        }
+
+        $this->normalizeProductImages($product, $preferredPrimaryUrl, $counters);
+    }
+
+    /**
+     * Keep one row per URL and one primary image while the import transaction holds row locks.
+     *
+     * @param  array{created: int, updated: int, unchanged: int, stale_skipped: int}  $counters
+     */
+    private function normalizeProductImages(Product $product, string $preferredPrimaryUrl, array &$counters): void
+    {
+        $images = ProductImage::query()
+            ->where('product_id', $product->id)
+            ->whereNull('product_variant_id')
+            ->lockForUpdate()
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
+        $seenUrls = [];
+
+        foreach ($images as $image) {
+            if (isset($seenUrls[$image->image_url])) {
+                $image->delete();
+                $counters['updated']++;
+
+                continue;
+            }
+
+            $seenUrls[$image->image_url] = true;
+        }
+
+        $images = $images->filter(fn (ProductImage $image): bool => $image->exists)->values();
+        $realImages = $images
+            ->reject(fn (ProductImage $image): bool => $image->image_url === ProductImageImportService::FALLBACK_URL)
+            ->values();
+
+        if ($realImages->isNotEmpty()) {
+            foreach ($images->where('image_url', ProductImageImportService::FALLBACK_URL) as $placeholder) {
+                $placeholder->delete();
+                $counters['updated']++;
+            }
+
+            $images = $realImages;
+        } elseif ($images->isEmpty()) {
+            $images = collect([ProductImage::query()->create([
+                'product_id' => $product->id,
+                'product_variant_id' => null,
+                'image_url' => ProductImageImportService::FALLBACK_URL,
+                'alt_text' => $product->name,
+                'sort_order' => 0,
+                'is_primary' => true,
+            ])]);
+            $counters['created']++;
+        }
+
+        $primary = $images->firstWhere('image_url', $preferredPrimaryUrl) ?? $images->first();
+
+        foreach ($images as $image) {
+            $shouldBePrimary = $image->is($primary);
+
+            if ($image->is_primary !== $shouldBePrimary) {
+                $image->update(['is_primary' => $shouldBePrimary]);
+                $counters['updated']++;
+            }
+        }
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $records
+     * @return list<array<string, mixed>>
+     */
+    public function onlyMissingProducts(array $records): array
+    {
+        if ($records === []) {
+            return [];
+        }
+
+        $existing = Product::query()
+            ->withTrashed()
+            ->where(function ($query) use ($records): void {
+                $query->where(function ($identity) use ($records): void {
+                    $identity->where('source', 'hasaki')
+                        ->whereIn('external_id', array_column($records, 'source_id'));
+                })->orWhereIn('slug', array_column($records, 'product_slug'));
+            })
+            ->get(['source', 'external_id', 'slug']);
+        $identities = [];
+        $slugs = [];
+
+        foreach ($existing as $product) {
+            if ($product->source === 'hasaki' && $product->external_id !== null) {
+                $identities[$product->external_id] = true;
+            }
+
+            $slugs[$product->slug] = true;
+        }
+
+        return array_values(array_filter(
+            $records,
+            static fn (array $record): bool => ! isset($identities[$record['source_id']])
+                && ! isset($slugs[$record['product_slug']]),
+        ));
+    }
+
+    /**
+     * Create synthetic development inventory without overwriting curated stock.
+     *
+     * @param  list<string>  $skus
+     * @return array{created: int, unchanged: int, quantity_per_row: int}
+     */
+    public function seedDevelopmentInventory(array $skus, int $quantity = 20): array
+    {
+        $branches = Branch::query()
+            ->where('is_active', true)
+            ->whereIn('branch_type', [BranchType::Store->value, BranchType::Hybrid->value])
+            ->pluck('id');
+        $variants = ProductVariant::query()
+            ->whereIn('sku', array_values(array_unique($skus)))
+            ->where('is_active', true)
+            ->pluck('id');
+        $created = 0;
+        $unchanged = 0;
+
+        foreach ($branches as $branchId) {
+            foreach ($variants as $variantId) {
+                $inventory = BranchInventory::query()->firstOrCreate(
+                    ['branch_id' => $branchId, 'product_variant_id' => $variantId],
+                    ['quantity' => max(0, $quantity), 'reserved_quantity' => 0, 'reorder_level' => 5],
+                );
+
+                $inventory->wasRecentlyCreated ? $created++ : $unchanged++;
+            }
+        }
+
+        return [
+            'created' => $created,
+            'unchanged' => $unchanged,
+            'quantity_per_row' => max(0, $quantity),
+        ];
     }
 
     /**

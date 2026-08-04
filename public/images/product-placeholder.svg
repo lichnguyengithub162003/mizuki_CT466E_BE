@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" role="img" aria-labelledby="title description">
+  <title id="title">Mizuki product image placeholder</title>
+  <desc id="description">A neutral placeholder for products without a local image.</desc>
+  <rect width="640" height="640" fill="#f7f2f5"/>
+  <circle cx="320" cy="258" r="112" fill="#ead7e1"/>
+  <path d="M238 390h164c29 0 52 23 52 52v46H186v-46c0-29 23-52 52-52Z" fill="#d8afc4"/>
+  <path d="M277 172h86v172h-86z" fill="#fff" opacity=".75"/>
+  <path d="M292 145h56v35h-56z" fill="#c98eac"/>
+  <text x="320" y="555" text-anchor="middle" font-family="Arial, sans-serif" font-size="38" fill="#8f5572">MIZUKI</text>
+</svg>

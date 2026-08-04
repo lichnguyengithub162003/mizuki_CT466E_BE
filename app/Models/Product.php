@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 #[Fillable([
+    'source',
+    'external_id',
+    'source_url',
     'category_id',
     'brand_id',
     'name',
@@ -17,9 +20,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'description',
     'ingredients',
     'usage_instructions',
+    'specifications',
     'origin_country',
     'is_active',
     'is_featured',
+    'external_rating',
+    'external_review_count',
 ])]
 class Product extends Model
 {
@@ -33,6 +39,9 @@ class Product extends Model
         return [
             'is_active' => 'boolean',
             'is_featured' => 'boolean',
+            'specifications' => 'array',
+            'external_rating' => 'decimal:2',
+            'external_review_count' => 'integer',
         ];
     }
 

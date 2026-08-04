@@ -41,9 +41,16 @@ class ProductIndexRequest extends FormRequest
                 'integer',
                 Rule::exists('brands', 'id')->whereNull('deleted_at'),
             ],
+            'branch_id' => [
+                'sometimes',
+                'integer',
+                Rule::exists('branches', 'id')->where(fn ($query) => $query
+                    ->where('is_active', true)->whereNull('deleted_at')),
+            ],
+            'in_stock' => ['sometimes', 'boolean'],
             'price_min' => $priceMinRules,
             'price_max' => $priceMaxRules,
-            'sort' => ['sometimes', Rule::in(['newest', 'best_selling', 'price_asc', 'price_desc'])],
+            'sort' => ['sometimes', Rule::in(['newest', 'best_selling', 'price_asc', 'price_desc', 'rating', 'name'])],
             'keyword' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
     }

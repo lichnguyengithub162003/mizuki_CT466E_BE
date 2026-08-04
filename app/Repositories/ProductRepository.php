@@ -20,8 +20,8 @@ class ProductRepository extends BaseRepository
     }
 
     /**
-     * @param array<string, mixed> $filters
-     * @param list<int> $categoryIds
+     * @param  array<string, mixed>  $filters
+     * @param  list<int>  $categoryIds
      * @return LengthAwarePaginator<int, Product>
      */
     public function paginateActive(array $filters, array $categoryIds = []): LengthAwarePaginator
@@ -33,9 +33,23 @@ class ProductRepository extends BaseRepository
                 'category:id,name,parent_id',
                 'brand:id,name',
                 'images' => fn (Builder|HasMany $query): Builder|HasMany => $query
-                    ->where('is_primary', true)
-                    ->orderBy('sort_order'),
+                    ->orderByDesc('is_primary')
+                    ->orderBy('sort_order')
+                    ->orderBy('id'),
+                'variants' => function (Builder|HasMany $query) use ($filters): void {
+                    $query->where('is_active', true)
+                        ->orderBy('sort_order')
+                        ->with(['inventories' => function (Builder|HasMany $inventory) use ($filters): void {
+                            $inventory->when(
+                                isset($filters['branch_id']),
+                                fn (Builder|HasMany $builder): Builder|HasMany => $builder
+                                    ->where('branch_id', (int) $filters['branch_id']),
+                            );
+                        }]);
+                },
             ])
+            ->withAvg('reviews', 'rating')
+            ->withCount('reviews')
             ->withExists([
                 'variants as has_discount' => fn (Builder|HasMany $query): Builder|HasMany => $query
                     ->where('is_active', true)
@@ -63,6 +77,22 @@ class ProductRepository extends BaseRepository
 
         if (! empty($filters['keyword'])) {
             $this->applyKeywordFilter($query, (string) $filters['keyword']);
+        }
+
+        if (isset($filters['branch_id']) || ! empty($filters['in_stock'])) {
+            $query->whereHas('variants.inventories', function (Builder $inventory) use ($filters): void {
+                if (isset($filters['branch_id'])) {
+                    $inventory->where('branch_id', (int) $filters['branch_id']);
+                }
+
+                if (! empty($filters['in_stock'])) {
+                    $inventory->whereColumn(
+                        'branch_inventories.quantity',
+                        '>',
+                        'branch_inventories.reserved_quantity',
+                    );
+                }
+            });
         }
 
         $this->applySort($query, (string) ($filters['sort'] ?? 'newest'));
@@ -95,14 +125,23 @@ class ProductRepository extends BaseRepository
             ->get();
     }
 
-    public function findActiveDetailBySlug(string $slug): ?Product
+    public function findActiveDetailBySlug(string $identifier): ?Product
     {
         return $this->query()
-            ->where('slug', $slug)
+            ->where(function (Builder $query) use ($identifier): void {
+                $query->where('slug', $identifier);
+
+                if (ctype_digit($identifier)) {
+                    $query->orWhere('products.id', (int) $identifier);
+                }
+            })
             ->where('is_active', true)
             ->with([
-                'category:id,name,parent_id',
-                'brand:id,name',
+                'category:id,name,slug,parent_id',
+                'category.parent:id,name,slug,parent_id',
+                'category.parent.parent:id,name,slug,parent_id',
+                'category.parent.parent.parent:id,name,slug,parent_id',
+                'brand:id,name,slug',
                 'images' => function (Builder|HasMany $query): void {
                     $query
                         ->orderByDesc('is_primary')
@@ -126,6 +165,8 @@ class ProductRepository extends BaseRepository
                         ]);
                 },
             ])
+            ->withAvg('reviews', 'rating')
+            ->withCount('reviews')
             ->first();
     }
 
@@ -213,7 +254,7 @@ class ProductRepository extends BaseRepository
     }
 
     /**
-     * @param Builder<Product> $query
+     * @param  Builder<Product>  $query
      */
     private function whereMinimumPrice(Builder $query, string $operator, int $price): void
     {
@@ -230,15 +271,22 @@ class ProductRepository extends BaseRepository
     }
 
     /**
-     * @param Builder<Product> $query
+     * @param  Builder<Product>  $query
      */
     private function applyKeywordFilter(Builder $query, string $keyword): void
     {
-        $query->where('products.name', 'like', '%'.$keyword.'%');
+        $query->where(function (Builder $search) use ($keyword): void {
+            $search->where('products.name', 'like', '%'.$keyword.'%')
+                ->orWhereHas('brand', fn (Builder $brand): Builder => $brand
+                    ->where('name', 'like', '%'.$keyword.'%'))
+                ->orWhereHas('variants', fn (Builder $variant): Builder => $variant
+                    ->where('sku', 'like', '%'.$keyword.'%')
+                    ->orWhere('name', 'like', '%'.$keyword.'%'));
+        });
     }
 
     /**
-     * @param Builder<Product> $query
+     * @param  Builder<Product>  $query
      */
     private function applySort(Builder $query, string $sort): void
     {
@@ -246,6 +294,8 @@ class ProductRepository extends BaseRepository
             'price_asc' => $query->orderBy('minimum_price')->orderByDesc('products.id'),
             'price_desc' => $query->orderByDesc('minimum_price')->orderByDesc('products.id'),
             // TODO: Replace with real sales data when order analytics are implemented.
+            'rating' => $query->orderByDesc('reviews_avg_rating')->orderByDesc('products.id'),
+            'name' => $query->orderBy('products.name')->orderByDesc('products.id'),
             'best_selling' => $query->orderByDesc('products.created_at')->orderByDesc('products.id'),
             default => $query->orderByDesc('products.created_at')->orderByDesc('products.id'),
         };

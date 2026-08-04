@@ -23,4 +23,21 @@ final readonly class ProductImportResult
     {
         return $this->data;
     }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function summary(): array
+    {
+        $summary = $this->data;
+        unset($summary['planned_records']);
+
+        foreach (['quarantine_examples', 'failure_examples', 'sample_mappings', 'imported_mappings'] as $key) {
+            if (isset($summary[$key]) && is_array($summary[$key])) {
+                $summary[$key] = array_slice($summary[$key], 0, 5);
+            }
+        }
+
+        return $summary;
+    }
 }

@@ -1671,6 +1671,20 @@
                         }
                     },
                     {
+                        "name": "branch_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "in_stock",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
                         "name": "price_min",
                         "in": "query",
                         "schema": {
@@ -1696,7 +1710,9 @@
                                 "newest",
                                 "best_selling",
                                 "price_asc",
-                                "price_desc"
+                                "price_desc",
+                                "rating",
+                                "name"
                             ]
                         }
                     },
@@ -1820,7 +1836,7 @@
                     {
                         "name": "slug",
                         "in": "path",
-                        "description": "Slug của sản phẩm",
+                        "description": "ID hoặc slug của sản phẩm",
                         "required": true,
                         "schema": {
                             "type": "string",

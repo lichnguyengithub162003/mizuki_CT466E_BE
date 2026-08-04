@@ -20,6 +20,7 @@
 /storage/pail
 /vendor
 /.vscode
+data-import/
 docs/
 _ide_helper.php
 Homestead.json

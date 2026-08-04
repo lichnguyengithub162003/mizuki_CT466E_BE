@@ -145,7 +145,7 @@ test('duplicates are detected globally even outside the selected window', functi
     expect($result['selected'])->toBe(1)
         ->and($result['valid'])->toBe(1)
         ->and($result['duplicate_source_ids'])->toBe(1)
-        ->and($result['duplicate_product_slugs'])->toBe(1)
+        ->and($result['duplicate_product_slugs'])->toBe(0)
         ->and($result['duplicate_skus'])->toBe(1);
 });
 
@@ -167,7 +167,8 @@ test('every valid source record has stable identities and one synthetic variant'
     foreach ($result['planned_records'] as $record) {
         expect($record)->toHaveKey('variant')
             ->and($record)->not->toHaveKey('variants')
-            ->and($record['product_slug'])->toBe('hasaki-product-'.$record['source_id'])
+            ->and($record['product_slug'])->toEndWith('-'.$record['source_id'])
+            ->and($record['product_slug'])->not->toStartWith('hasaki-product-')
             ->and($record['synthetic_sku'])->toBe('HS-'.$record['source_id']);
     }
 });
@@ -359,7 +360,13 @@ test('force performs a real-source controlled write in the isolated test databas
         ->expectsOutput('Controlled product import committed successfully.')
         ->assertSuccessful();
 
-    $product = Product::query()->where('slug', 'hasaki-product-96589')->firstOrFail();
+    $product = Product::query()
+        ->where('source', 'hasaki')
+        ->where('external_id', '96589')
+        ->firstOrFail();
+
+    expect($product->slug)->toEndWith('-96589')
+        ->and($product->slug)->not->toStartWith('hasaki-product-');
     $variant = ProductVariant::query()->where('sku', 'HS-96589')->firstOrFail();
 
     expect($product->id)->toBeGreaterThan(0)
@@ -649,7 +656,7 @@ test('write offset and limit persist only the selected product window', function
         500,
     );
 
-    expect(Product::query()->pluck('slug')->all())->toBe(['hasaki-product-1002'])
+    expect(Product::query()->pluck('slug')->all())->toBe(['selected-product-1002'])
         ->and(ProductVariant::query()->pluck('sku')->all())->toBe(['HS-1002']);
 });
 

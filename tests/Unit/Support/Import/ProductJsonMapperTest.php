@@ -51,19 +51,21 @@ test('mapper creates deterministic product and synthetic variant identities', fu
 
     expect($mapped['status'])->toBe('valid')
         ->and($mapped['source_id'])->toBe('00123')
-        ->and($mapped['product_slug'])->toBe('hasaki-product-00123')
+        ->and($mapped['product_slug'])->toBe('serum-phuc-hoi-da-00123')
+        ->and($mapped['product_slug'])->not->toStartWith('hasaki-product-')
         ->and($mapped['synthetic_sku'])->toBe('HS-00123')
         ->and($mapped['variant']['sku'])->toBe('HS-00123');
 });
 
-test('a name change does not alter product or variant identity', function (): void {
-    $first = $this->mapper->map(($this->record)(['name' => 'Tên ban đầu']));
-    $renamed = $this->mapper->map(($this->record)(['name' => 'Tên đã đổi']));
+test('a name change updates the customer slug while preserving the external identity suffix', function (): void {
+    $first = $this->mapper->map(($this->record)(['name' => 'First product name']));
+    $renamed = $this->mapper->map(($this->record)(['name' => 'Renamed product']));
 
-    expect($renamed['product_slug'])->toBe($first['product_slug'])
+    expect($renamed['product_slug'])->not->toBe($first['product_slug'])
+        ->and($first['product_slug'])->toEndWith('-00123')
+        ->and($renamed['product_slug'])->toBe('renamed-product-00123')
         ->and($renamed['synthetic_sku'])->toBe($first['synthetic_sku']);
 });
-
 test('current and original prices map to price and sale price correctly', function (): void {
     $discounted = $this->mapper->map(($this->record)());
     $regular = $this->mapper->map(($this->record)([
@@ -77,6 +79,40 @@ test('current and original prices map to price and sale price correctly', functi
         ->and($regular['variant']['sale_price'])->toBeNull();
 });
 
+test('crawler aggregate rating and review count map to product fields', function (): void {
+    $mapped = $this->mapper->map(($this->record)([
+        'ratingScore' => '4.37',
+        'ratingCount' => '128',
+    ]));
+
+    expect($mapped['product']['external_rating'])->toBe(4.37)
+        ->and($mapped['product']['external_review_count'])->toBe(128);
+});
+
+test('missing aggregate rating values use null and zero defaults', function (): void {
+    $mapped = $this->mapper->map(($this->record)([
+        'ratingScore' => ' ',
+        'ratingCount' => null,
+    ]));
+
+    expect($mapped['product']['external_rating'])->toBeNull()
+        ->and($mapped['product']['external_review_count'])->toBe(0)
+        ->and($mapped['warnings'])->not->toContain('invalid_external_rating')
+        ->and($mapped['warnings'])->not->toContain('invalid_external_review_count');
+});
+
+test('invalid aggregate rating values are safely rejected without quarantining the product', function (): void {
+    $mapped = $this->mapper->map(($this->record)([
+        'ratingScore' => 5.01,
+        'ratingCount' => -1,
+    ]));
+
+    expect($mapped['status'])->toBe('valid')
+        ->and($mapped['product']['external_rating'])->toBeNull()
+        ->and($mapped['product']['external_review_count'])->toBe(0)
+        ->and($mapped['warnings'])->toContain('invalid_external_rating')
+        ->and($mapped['warnings'])->toContain('invalid_external_review_count');
+});
 test('brand whitespace is normalized and a deterministic slug is produced', function (): void {
     $mapped = $this->mapper->map(($this->record)());
 

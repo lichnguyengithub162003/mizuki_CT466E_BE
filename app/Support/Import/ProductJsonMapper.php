@@ -46,6 +46,16 @@ class ProductJsonMapper
 
         $warnings = ['missing_weight_policy'];
         $barcode = $this->barcode($record['specifications']['Barcode'] ?? null);
+        $externalRating = $this->externalRating($record['ratingScore'] ?? null);
+        $externalReviewCount = $this->externalReviewCount($record['ratingCount'] ?? null);
+
+        if (! $this->isBlank($record['ratingScore'] ?? null) && $externalRating === null) {
+            $warnings[] = 'invalid_external_rating';
+        }
+
+        if (! $this->isBlank($record['ratingCount'] ?? null) && $externalReviewCount === null) {
+            $warnings[] = 'invalid_external_review_count';
+        }
 
         if (
             array_key_exists('Barcode', is_array($record['specifications'] ?? null)
@@ -56,7 +66,11 @@ class ProductJsonMapper
             $warnings[] = 'invalid_barcode';
         }
 
-        $productSlug = 'hasaki-product-'.$sourceId;
+        $productSlug = $this->productSlug($name, $sourceId);
+
+        if ($productSlug === '') {
+            return $this->quarantined($sourceId, 'invalid_product_slug');
+        }
         $sku = 'HS-'.$sourceId;
         $originalPrice = $this->positiveInteger($record['originalPrice'] ?? null);
         $variantPrice = $originalPrice !== null && $originalPrice > $price
@@ -85,17 +99,23 @@ class ProductJsonMapper
             'categories' => $categories,
             'category_slug' => $categories[array_key_last($categories)]['slug'],
             'product' => [
+                'source' => 'hasaki',
+                'external_id' => $sourceId,
+                'source_url' => $this->nullableString($record['url'] ?? null),
                 'name' => $name,
                 'slug' => $productSlug,
                 'short_description' => $this->nullableString($record['subName'] ?? null),
                 'description' => $this->nullableString($record['description'] ?? null),
                 'ingredients' => $this->nullableString($record['ingredients'] ?? null),
                 'usage_instructions' => $this->nullableString($record['usageInstructions'] ?? null),
+                'specifications' => $this->specifications($specifications),
                 'origin_country' => $this->nullableString(
                     $specifications['Xuất xứ thương hiệu'] ?? null,
                 ),
                 'is_active' => true,
                 'is_featured' => false,
+                'external_rating' => $externalRating,
+                'external_review_count' => $externalReviewCount ?? 0,
             ],
             'variant' => [
                 'name' => $attributes === [] ? $name : implode(' / ', array_values($attributes)),
@@ -124,6 +144,20 @@ class ProductJsonMapper
                     : [],
             ],
         ];
+    }
+
+    public function productSlug(string $name, string $sourceId): string
+    {
+        $nameSlug = Str::slug($name);
+        $maximumNameLength = 254 - strlen($sourceId);
+
+        if ($nameSlug === '' || $maximumNameLength < 1) {
+            return '';
+        }
+
+        $nameSlug = rtrim(substr($nameSlug, 0, $maximumNameLength), '-');
+
+        return $nameSlug === '' ? '' : $nameSlug.'-'.$sourceId;
     }
 
     /**
@@ -279,6 +313,31 @@ class ProductJsonMapper
     }
 
     /**
+     * @param  array<array-key, mixed>  $specifications
+     * @return array<string, string>
+     */
+    private function specifications(array $specifications): array
+    {
+        $mapped = [];
+
+        foreach ($specifications as $name => $value) {
+            $name = $this->normalizeText($name);
+
+            if ($name === '' || ! is_scalar($value)) {
+                continue;
+            }
+
+            $value = $this->normalizeText($value);
+
+            if ($value !== '') {
+                $mapped[$name] = $value;
+            }
+        }
+
+        return $mapped;
+    }
+
+    /**
      * @return list<string>
      */
     private function stringList(mixed $value): array
@@ -324,6 +383,53 @@ class ProductJsonMapper
         $value = (int) $value;
 
         return $value > 0 ? $value : null;
+    }
+
+    private function externalRating(mixed $value): ?float
+    {
+        if ($this->isBlank($value)) {
+            return null;
+        }
+
+        if (
+            ! is_int($value)
+            && ! is_float($value)
+            && ! (is_string($value) && preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)$/', trim($value)) === 1)
+        ) {
+            return null;
+        }
+
+        $rating = (float) $value;
+
+        return is_finite($rating) && $rating >= 0 && $rating <= 5
+            ? round($rating, 2)
+            : null;
+    }
+
+    private function externalReviewCount(mixed $value): ?int
+    {
+        if ($this->isBlank($value)) {
+            return 0;
+        }
+
+        if (is_int($value)) {
+            return $value >= 0 ? $value : null;
+        }
+
+        if (is_float($value) && is_finite($value) && floor($value) === $value) {
+            return $value >= 0 ? (int) $value : null;
+        }
+
+        if (is_string($value) && preg_match('/^\d+$/', trim($value)) === 1) {
+            return (int) trim($value);
+        }
+
+        return null;
+    }
+
+    private function isBlank(mixed $value): bool
+    {
+        return $value === null || (is_string($value) && trim($value) === '');
     }
 
     /**
