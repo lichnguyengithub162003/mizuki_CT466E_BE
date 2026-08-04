@@ -36,4 +36,27 @@ class BrandRepository extends BaseRepository
 
         return $brand;
     }
+
+    public function incrementFollowerCount(Brand $brand): int
+    {
+        $this->query()->whereKey($brand->getKey())->increment('follower_count');
+
+        return (int) $this->query()
+            ->whereKey($brand->getKey())
+            ->firstOrFail(['follower_count'])
+            ->follower_count;
+    }
+
+    public function decrementFollowerCount(Brand $brand): int
+    {
+        $this->query()
+            ->whereKey($brand->getKey())
+            ->where('follower_count', '>', 0)
+            ->decrement('follower_count');
+
+        return (int) $this->query()
+            ->whereKey($brand->getKey())
+            ->firstOrFail(['follower_count'])
+            ->follower_count;
+    }
 }

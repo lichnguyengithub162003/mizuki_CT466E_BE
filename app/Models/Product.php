@@ -92,4 +92,32 @@ class Product extends Model
     {
         return $this->hasMany(ProductFavorite::class);
     }
+
+    public function effectiveReviewCount(): int
+    {
+        $internalReviewCount = (int) ($this->reviews_count ?? 0);
+
+        return $internalReviewCount > 0
+            ? $internalReviewCount
+            : (int) ($this->external_review_count ?? 0);
+    }
+
+    public function effectiveRating(): float
+    {
+        return (int) ($this->reviews_count ?? 0) > 0
+            ? (float) ($this->reviews_avg_rating ?? 0)
+            : (float) ($this->external_rating ?? 0);
+    }
+
+    public static function effectiveReviewCountSql(string $reviewAlias): string
+    {
+        return "CASE WHEN COALESCE({$reviewAlias}.review_count, 0) > 0 "
+            ."THEN {$reviewAlias}.review_count ELSE COALESCE(products.external_review_count, 0) END";
+    }
+
+    public static function effectiveRatingSql(string $reviewAlias): string
+    {
+        return "CASE WHEN COALESCE({$reviewAlias}.review_count, 0) > 0 "
+            ."THEN COALESCE({$reviewAlias}.average_rating, 0) ELSE COALESCE(products.external_rating, 0) END";
+    }
 }

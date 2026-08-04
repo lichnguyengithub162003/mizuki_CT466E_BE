@@ -279,6 +279,26 @@ test('reruns are idempotent and update existing is explicit', function (): void 
         ->and(Category::query()->count())->toBe(2);
 });
 
+test('scraped import preserves follower count when the source has no follower field', function (): void {
+    $source = writeScrapedCatalogFixture([scrapedCatalogRecord()]);
+    $arguments = [
+        '--source' => $source,
+        '--limit' => 1,
+        '--skip-images' => true,
+        '--update-existing' => true,
+    ];
+
+    $this->artisan('mizuki:import-scraped-data', $arguments)->assertSuccessful();
+    $brand = Brand::query()->sole();
+    $brand->update(['follower_count' => 321]);
+
+    $this->artisan('mizuki:import-scraped-data', $arguments)->assertSuccessful();
+    $this->artisan('mizuki:import-scraped-data', $arguments)->assertSuccessful();
+
+    expect($brand->refresh()->follower_count)->toBe(321)
+        ->and(Brand::query()->count())->toBe(1);
+});
+
 test('update existing with skipped images updates aggregate ratings without changing related rows', function (): void {
     $source = writeScrapedCatalogFixture([scrapedCatalogRecord()]);
     $arguments = [

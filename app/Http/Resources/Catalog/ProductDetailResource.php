@@ -66,13 +66,8 @@ class ProductDetailResource extends JsonResource
         }
 
         $variantPrices = $this->variants->pluck('effective_price')->map(fn (mixed $price): int => (int) $price);
-        $internalReviewCount = (int) ($this->reviews_count ?? 0);
-        $rating = $internalReviewCount > 0
-            ? (float) ($this->reviews_avg_rating ?? 0)
-            : (float) ($this->external_rating ?? 0);
-        $reviewCount = $internalReviewCount > 0
-            ? $internalReviewCount
-            : (int) ($this->external_review_count ?? 0);
+        $rating = $this->resource->effectiveRating();
+        $reviewCount = $this->resource->effectiveReviewCount();
 
         return [
             'product' => [
@@ -102,6 +97,11 @@ class ProductDetailResource extends JsonResource
                 'id' => $this->brand->id,
                 'name' => $this->brand->name,
                 'slug' => $this->brand->slug,
+                'logo_url' => $this->brand->logo_url,
+                'active_product_count' => (int) $this->brand->active_product_count,
+                'average_rating' => round((float) $this->brand->average_rating, 1),
+                'review_count' => (int) $this->brand->review_count,
+                'follower_count' => (int) $this->brand->follower_count,
             ],
             'categories' => $breadcrumbs,
             'breadcrumbs' => $breadcrumbs,

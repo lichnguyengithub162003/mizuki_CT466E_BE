@@ -34,6 +34,16 @@ class BrandService extends BaseService
         return $brand;
     }
 
+    public function follow(Brand $brand): int
+    {
+        return $this->brands->incrementFollowerCount($brand);
+    }
+
+    public function unfollow(Brand $brand): int
+    {
+        return $this->brands->decrementFollowerCount($brand);
+    }
+
     /**
      * @param  Collection<int, Brand>  $brands
      * @return Collection<int, Brand>

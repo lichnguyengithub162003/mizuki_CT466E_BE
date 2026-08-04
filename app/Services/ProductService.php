@@ -37,6 +37,10 @@ class ProductService extends BaseService
             return null;
         }
 
+        $product->brand->forceFill(
+            $this->products->activeBrandStatistics((int) $product->brand_id),
+        );
+
         foreach ($product->variants as $variant) {
             $effectivePrice = $variant->sale_price !== null && $variant->sale_price < $variant->price
                 ? $variant->sale_price

@@ -4,6 +4,7 @@ namespace App\Repositories;
 
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\Review;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -141,7 +142,7 @@ class ProductRepository extends BaseRepository
                 'category.parent:id,name,slug,parent_id',
                 'category.parent.parent:id,name,slug,parent_id',
                 'category.parent.parent.parent:id,name,slug,parent_id',
-                'brand:id,name,slug',
+                'brand:id,name,slug,logo_url,follower_count',
                 'images' => function (Builder|HasMany $query): void {
                     $query
                         ->orderByDesc('is_primary')
@@ -168,6 +169,36 @@ class ProductRepository extends BaseRepository
             ->withAvg('reviews', 'rating')
             ->withCount('reviews')
             ->first();
+    }
+
+    /**
+     * @return array{active_product_count: int, average_rating: float, review_count: int}
+     */
+    public function activeBrandStatistics(int $brandId): array
+    {
+        $internalReviews = Review::query()
+            ->selectRaw('product_id, COUNT(*) as review_count, AVG(rating) as average_rating')
+            ->groupBy('product_id');
+        $reviewCount = Product::effectiveReviewCountSql('internal_reviews');
+        $rating = Product::effectiveRatingSql('internal_reviews');
+        $statistics = Product::query()
+            ->leftJoinSub($internalReviews, 'internal_reviews', function ($join): void {
+                $join->on('internal_reviews.product_id', '=', 'products.id');
+            })
+            ->where('products.brand_id', $brandId)
+            ->where('products.is_active', true)
+            ->selectRaw('COUNT(products.id) as active_product_count')
+            ->selectRaw("COALESCE(SUM({$reviewCount}), 0) as review_count")
+            ->selectRaw(
+                "COALESCE(SUM(({$rating}) * ({$reviewCount})) / NULLIF(SUM({$reviewCount}), 0), 0) as average_rating",
+            )
+            ->first();
+
+        return [
+            'active_product_count' => (int) ($statistics?->active_product_count ?? 0),
+            'average_rating' => (float) ($statistics?->average_rating ?? 0),
+            'review_count' => (int) ($statistics?->review_count ?? 0),
+        ];
     }
 
     /**

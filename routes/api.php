@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\V1\Catalog\CategoryController;
 use App\Http\Controllers\Api\V1\Catalog\ProductController;
 use App\Http\Controllers\Api\V1\ClinicController;
 use App\Http\Controllers\Api\V1\Customer\AppointmentController;
+use App\Http\Controllers\Api\V1\Customer\BrandController as CustomerBrandController;
 use App\Http\Controllers\Api\V1\Customer\CartController;
 use App\Http\Controllers\Api\V1\Customer\CartPromotionController;
 use App\Http\Controllers\Api\V1\Customer\FavoriteController;
@@ -78,6 +79,8 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
         Route::middleware('role:customer')->group(function (): void {
             Route::get('skin-profile', [CustomerSkinProfileController::class, 'show'])->name('skin-profile.show');
             Route::put('skin-profile', [CustomerSkinProfileController::class, 'update'])->name('skin-profile.update');
+            Route::post('brands/{brand}/follow', [CustomerBrandController::class, 'follow'])->name('brands.follow');
+            Route::delete('brands/{brand}/follow', [CustomerBrandController::class, 'unfollow'])->name('brands.unfollow');
         });
 
         // Appointments

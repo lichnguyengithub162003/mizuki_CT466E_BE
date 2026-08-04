@@ -30,13 +30,8 @@ class ProductListResource extends JsonResource
         );
         $primaryImage = ($realImages->firstWhere('is_primary', true) ?? $realImages->first())?->image_url
             ?? ProductImageImportService::FALLBACK_URL;
-        $internalReviewCount = (int) ($this->reviews_count ?? 0);
-        $rating = $internalReviewCount > 0
-            ? (float) ($this->reviews_avg_rating ?? 0)
-            : (float) ($this->external_rating ?? 0);
-        $reviewCount = $internalReviewCount > 0
-            ? $internalReviewCount
-            : (int) ($this->external_review_count ?? 0);
+        $rating = $this->resource->effectiveRating();
+        $reviewCount = $this->resource->effectiveReviewCount();
 
         return [
             'id' => $this->id,

@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'logo_url',
     'banner_image',
     'description',
+    'follower_count',
     'is_active',
 ])]
 class Brand extends Model
@@ -25,6 +26,7 @@ class Brand extends Model
     protected function casts(): array
     {
         return [
+            'follower_count' => 'integer',
             'is_active' => 'boolean',
         ];
     }

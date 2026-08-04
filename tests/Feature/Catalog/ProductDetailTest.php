@@ -1,13 +1,16 @@
 <?php
 
-use App\Models\Brand;
 use App\Models\Branch;
 use App\Models\BranchInventory;
+use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\ProductVariant;
+use App\Models\Review;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 uses(RefreshDatabase::class);
@@ -194,4 +197,84 @@ test('product detail calculates effective prices with and without sale prices', 
         ->assertJsonPath('data.variants.1.price', 300_000)
         ->assertJsonPath('data.variants.1.sale_price', null)
         ->assertJsonPath('data.variants.1.effective_price', 300_000);
+});
+
+test('product detail returns complete weighted brand statistics from active products', function (): void {
+    $category = createDetailCategory('Brand statistics');
+    $brand = createDetailBrand('DHC');
+    $brand->update(['logo_url' => 'brands/dhc.png', 'follower_count' => 2430]);
+    $internal = createDetailProduct($category, $brand, 'Internal reviews');
+    $internal->update(['external_rating' => 1.0, 'external_review_count' => 99]);
+    $external = createDetailProduct($category, $brand, 'External reviews');
+    $external->update(['external_rating' => 5.0, 'external_review_count' => 3]);
+    $zeroReviews = createDetailProduct($category, $brand, 'Zero reviews');
+    $zeroReviews->update(['external_rating' => 5.0, 'external_review_count' => 0]);
+    $inactive = createDetailProduct($category, $brand, 'Inactive', false);
+    $inactive->update(['external_rating' => 1.0, 'external_review_count' => 500]);
+    $deleted = createDetailProduct($category, $brand, 'Deleted');
+    $deleted->update(['external_rating' => 1.0, 'external_review_count' => 500]);
+    $deleted->delete();
+
+    foreach ([5, 3] as $rating) {
+        Review::query()->create([
+            'user_id' => User::factory()->create()->id,
+            'product_id' => $internal->id,
+            'rating' => $rating,
+            'is_visible' => true,
+        ]);
+    }
+
+    $this->getJson("/api/v1/products/{$internal->slug}")
+        ->assertOk()
+        ->assertJsonPath('data.brand.id', $brand->id)
+        ->assertJsonPath('data.brand.name', 'DHC')
+        ->assertJsonPath('data.brand.slug', $brand->slug)
+        ->assertJsonPath('data.brand.logo_url', 'brands/dhc.png')
+        ->assertJsonPath('data.brand.active_product_count', 3)
+        ->assertJsonPath('data.brand.average_rating', 4.6)
+        ->assertJsonPath('data.brand.review_count', 5)
+        ->assertJsonPath('data.brand.follower_count', 2430);
+});
+
+test('product detail brand statistics return zeros when active products have no reviews', function (): void {
+    $category = createDetailCategory('No reviews');
+    $brand = createDetailBrand('No Review Brand');
+    $product = createDetailProduct($category, $brand, 'Unreviewed product');
+
+    $this->getJson("/api/v1/products/{$product->slug}")
+        ->assertOk()
+        ->assertJsonPath('data.brand.active_product_count', 1)
+        ->assertJsonPath('data.brand.average_rating', 0)
+        ->assertJsonPath('data.brand.review_count', 0)
+        ->assertJsonPath('data.brand.follower_count', 0);
+});
+
+test('product detail brand statistics add a constant number of queries', function (): void {
+    $category = createDetailCategory('Query count');
+    $brand = createDetailBrand('Efficient Brand');
+    $product = createDetailProduct($category, $brand, 'Measured product');
+
+    $countQueries = function () use ($product): int {
+        $queries = 0;
+        DB::listen(function () use (&$queries): void {
+            $queries++;
+        });
+        $this->getJson("/api/v1/products/{$product->slug}")->assertOk();
+
+        return $queries;
+    };
+
+    $baseline = $countQueries();
+
+    foreach (range(1, 10) as $index) {
+        $other = createDetailProduct($category, $brand, "Brand product {$index}");
+        Review::query()->create([
+            'user_id' => User::factory()->create()->id,
+            'product_id' => $other->id,
+            'rating' => 5,
+            'is_visible' => true,
+        ]);
+    }
+
+    expect($countQueries() - $baseline)->toBe(0);
 });
