@@ -5,6 +5,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Review;
 use App\Models\User;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 test('it casts review rating, visibility, and moderation time', function (): void {
     $review = new Review([
@@ -19,11 +20,26 @@ test('it casts review rating, visibility, and moderation time', function (): voi
 });
 
 test('it belongs to review, product, purchase, and moderation entities', function (): void {
-    $review = new Review();
+    $review = new Review;
 
     expect($review->user()->getRelated())->toBeInstanceOf(User::class)
         ->and($review->product()->getRelated())->toBeInstanceOf(Product::class)
         ->and($review->productVariant()->getRelated())->toBeInstanceOf(ProductVariant::class)
         ->and($review->orderItem()->getRelated())->toBeInstanceOf(OrderItem::class)
         ->and($review->moderatedBy()->getRelated())->toBeInstanceOf(User::class);
+});
+
+test('it supports nullable imported ownership and casts imported metadata', function (): void {
+    $review = new Review([
+        'user_id' => null,
+        'source' => 'hasaki',
+        'source_verified_purchase' => 1,
+        'images' => ['https://example.test/review.jpg'],
+    ]);
+
+    expect($review->user_id)->toBeNull()
+        ->and($review->source)->toBe('hasaki')
+        ->and($review->source_verified_purchase)->toBeTrue()
+        ->and($review->images)->toBe(['https://example.test/review.jpg'])
+        ->and(class_uses_recursive(Review::class))->toContain(SoftDeletes::class);
 });

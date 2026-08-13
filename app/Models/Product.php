@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'source',
     'external_id',
     'source_url',
+    'source_variant_groups',
     'category_id',
     'brand_id',
     'name',
@@ -40,6 +41,7 @@ class Product extends Model
             'is_active' => 'boolean',
             'is_featured' => 'boolean',
             'specifications' => 'array',
+            'source_variant_groups' => 'array',
             'external_rating' => 'decimal:2',
             'external_review_count' => 'integer',
         ];
@@ -83,6 +85,14 @@ class Product extends Model
     public function reviews(): HasMany
     {
         return $this->hasMany(Review::class);
+    }
+
+    /**
+     * @return HasMany<ProductQuestion, $this>
+     */
+    public function questions(): HasMany
+    {
+        return $this->hasMany(ProductQuestion::class);
     }
 
     /**

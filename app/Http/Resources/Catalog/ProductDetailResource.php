@@ -102,11 +102,13 @@ class ProductDetailResource extends JsonResource
                 'average_rating' => round((float) $this->brand->average_rating, 1),
                 'review_count' => (int) $this->brand->review_count,
                 'follower_count' => (int) $this->brand->follower_count,
+                'is_following' => (bool) ($this->brand->is_following ?? false),
             ],
             'categories' => $breadcrumbs,
             'breadcrumbs' => $breadcrumbs,
             'images' => $images,
             'gallery' => $images,
+            'variant_groups' => $this->variant_groups ?? [],
             'variants' => $this->variants
                 ->map(fn (ProductVariant $variant): array => [
                     'id' => $variant->id,
@@ -149,7 +151,26 @@ class ProductDetailResource extends JsonResource
             )->values()->all(),
             'related_products' => [],
             'reviews' => [],
-            'questions_and_answers' => [],
+            'questions_and_answers' => $this->questions
+                ->map(fn ($question): array => [
+                    'id' => $question->id,
+                    'author' => $question->author_name,
+                    'question' => $question->question,
+                    'date' => $question->source_date
+                        ?? $question->asked_at?->timezone(config('app.timezone'))->format('Y-m-d, H:i'),
+                    'answers' => $question->answers
+                        ->map(fn ($answer): array => [
+                            'id' => $answer->id,
+                            'author' => $answer->author_name,
+                            'text' => $answer->answer,
+                            'date' => $answer->source_date
+                                ?? $answer->answered_at?->timezone(config('app.timezone'))->format('Y-m-d, H:i'),
+                        ])
+                        ->values()
+                        ->all(),
+                ])
+                ->values()
+                ->all(),
         ];
     }
 }

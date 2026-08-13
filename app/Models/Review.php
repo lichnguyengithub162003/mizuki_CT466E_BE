@@ -8,6 +8,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 #[Fillable([
+    'source',
+    'source_key',
+    'source_author_name',
+    'source_verified_purchase',
+    'source_date',
+    'variant_purchased',
+    'images',
+    'mizuki_response_content',
     'user_id',
     'product_id',
     'product_variant_id',
@@ -30,6 +38,8 @@ class Review extends Model
     {
         return [
             'rating' => 'integer',
+            'source_verified_purchase' => 'boolean',
+            'images' => 'array',
             'is_visible' => 'boolean',
             'moderated_at' => 'datetime',
         ];

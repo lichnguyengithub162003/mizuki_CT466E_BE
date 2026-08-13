@@ -2,6 +2,8 @@
 
 namespace App\Repositories;
 
+use App\Enums\OrderStatus;
+use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Review;
@@ -149,6 +151,16 @@ class ProductRepository extends BaseRepository
                         ->orderBy('sort_order')
                         ->orderBy('id');
                 },
+                'questions' => function (Builder|HasMany $query): void {
+                    $query
+                        ->orderBy('sort_order')
+                        ->orderBy('id')
+                        ->with([
+                            'answers' => fn (Builder|HasMany $answerQuery): Builder|HasMany => $answerQuery
+                                ->orderBy('sort_order')
+                                ->orderBy('id'),
+                        ]);
+                },
                 'variants' => function (Builder|HasMany $query): void {
                     $query
                         ->where('is_active', true)
@@ -169,6 +181,197 @@ class ProductRepository extends BaseRepository
             ->withAvg('reviews', 'rating')
             ->withCount('reviews')
             ->first();
+    }
+
+    /**
+     * @param  list<string>  $externalIds
+     * @return Collection<int, Product>
+     */
+    public function findActiveBySourceExternalIds(string $source, array $externalIds): Collection
+    {
+        if ($externalIds === []) {
+            return new Collection;
+        }
+
+        return $this->query()
+            ->select(['id', 'external_id', 'slug', 'name'])
+            ->where('source', $source)
+            ->where('is_active', true)
+            ->whereIn('external_id', array_values(array_unique($externalIds)))
+            ->get();
+    }
+
+    public function findActiveForReviews(string $identifier): ?Product
+    {
+        return $this->query()
+            ->select(['id', 'slug'])
+            ->where(function (Builder $query) use ($identifier): void {
+                $query->where('slug', $identifier);
+
+                if (ctype_digit($identifier)) {
+                    $query->orWhere('id', (int) $identifier);
+                }
+            })
+            ->where('is_active', true)
+            ->first();
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     * @return LengthAwarePaginator<int, Review>
+     */
+    public function paginateVisibleReviews(Product $product, array $filters): LengthAwarePaginator
+    {
+        $query = Review::query()
+            ->select([
+                'reviews.id',
+                'reviews.user_id',
+                'reviews.product_id',
+                'reviews.order_item_id',
+                'reviews.source',
+                'reviews.source_author_name',
+                'reviews.source_verified_purchase',
+                'reviews.images',
+                'reviews.mizuki_response_content',
+                'reviews.rating',
+                'reviews.title',
+                'reviews.comment',
+                'reviews.created_at',
+            ])
+            ->where('reviews.product_id', $product->id)
+            ->where('reviews.is_visible', true)
+            ->with('user:id,name,avatar')
+            ->withExists([
+                'orderItem as internal_verified_purchase' => fn (Builder $orderItem): Builder => $this
+                    ->applyVerifiedPurchaseConstraints($orderItem),
+            ]);
+
+        if (isset($filters['rating'])) {
+            $query->where('reviews.rating', (int) $filters['rating']);
+        }
+
+        if (array_key_exists('has_images', $filters)) {
+            if ($filters['has_images']) {
+                $query->whereJsonLength('reviews.images', '>', 0);
+            } else {
+                $query->where(function (Builder $images): void {
+                    $images->whereNull('reviews.images')
+                        ->orWhereJsonLength('reviews.images', 0);
+                });
+            }
+        }
+
+        if (array_key_exists('verified_purchase', $filters)) {
+            $this->applyVerifiedPurchaseFilter($query, (bool) $filters['verified_purchase']);
+        }
+
+        return $query
+            ->orderByDesc('reviews.created_at')
+            ->orderByDesc('reviews.id')
+            ->paginate((int) ($filters['per_page'] ?? 10));
+    }
+
+    /**
+     * @return array{
+     *     average_rating: float,
+     *     total_reviews: int,
+     *     rating_distribution: object,
+     *     reviews_with_images_count: int,
+     *     verified_purchase_reviews_count: int
+     * }
+     */
+    public function visibleReviewSummary(Product $product): array
+    {
+        $summary = Review::query()
+            ->where('product_id', $product->id)
+            ->where('is_visible', true)
+            ->selectRaw('COUNT(*) as total_reviews')
+            ->selectRaw('COALESCE(AVG(rating), 0) as average_rating')
+            ->selectRaw('SUM(CASE WHEN rating = 5 THEN 1 ELSE 0 END) as rating_5')
+            ->selectRaw('SUM(CASE WHEN rating = 4 THEN 1 ELSE 0 END) as rating_4')
+            ->selectRaw('SUM(CASE WHEN rating = 3 THEN 1 ELSE 0 END) as rating_3')
+            ->selectRaw('SUM(CASE WHEN rating = 2 THEN 1 ELSE 0 END) as rating_2')
+            ->selectRaw('SUM(CASE WHEN rating = 1 THEN 1 ELSE 0 END) as rating_1')
+            ->first();
+
+        $verifiedPurchaseCount = Review::query()
+            ->where('product_id', $product->id)
+            ->where('is_visible', true)
+            ->tap(fn (Builder $query): Builder => $this->applyVerifiedPurchaseFilter($query, true))
+            ->count();
+        $withImagesCount = Review::query()
+            ->where('product_id', $product->id)
+            ->where('is_visible', true)
+            ->whereJsonLength('images', '>', 0)
+            ->count();
+
+        return [
+            'average_rating' => round((float) ($summary?->average_rating ?? 0), 1),
+            'total_reviews' => (int) ($summary?->total_reviews ?? 0),
+            'rating_distribution' => (object) [
+                5 => (int) ($summary?->rating_5 ?? 0),
+                4 => (int) ($summary?->rating_4 ?? 0),
+                3 => (int) ($summary?->rating_3 ?? 0),
+                2 => (int) ($summary?->rating_2 ?? 0),
+                1 => (int) ($summary?->rating_1 ?? 0),
+            ],
+            'reviews_with_images_count' => $withImagesCount,
+            'verified_purchase_reviews_count' => $verifiedPurchaseCount,
+        ];
+    }
+
+    /**
+     * @param  Builder<OrderItem>  $query
+     * @return Builder<OrderItem>
+     */
+    private function applyVerifiedPurchaseConstraints(Builder $query): Builder
+    {
+        return $query
+            ->whereHas(
+                'order',
+                fn (Builder $order): Builder => $order
+                    ->where('orders.status', OrderStatus::Delivered->value)
+                    ->whereColumn('orders.user_id', 'reviews.user_id'),
+            )
+            ->whereHas(
+                'productVariant',
+                fn (Builder $variant): Builder => $variant
+                    ->whereColumn('product_variants.product_id', 'reviews.product_id'),
+            );
+    }
+
+    /**
+     * @param  Builder<Review>  $query
+     * @return Builder<Review>
+     */
+    private function applyVerifiedPurchaseFilter(Builder $query, bool $verified): Builder
+    {
+        return $query->where(function (Builder $verification) use ($verified): void {
+            $verification
+                ->where(function (Builder $imported) use ($verified): void {
+                    $imported->where('reviews.source', 'hasaki');
+
+                    if ($verified) {
+                        $imported->where('reviews.source_verified_purchase', true);
+                    } else {
+                        $imported->where(function (Builder $sourceValue): void {
+                            $sourceValue->whereNull('reviews.source_verified_purchase')
+                                ->orWhere('reviews.source_verified_purchase', false);
+                        });
+                    }
+                })
+                ->orWhere(function (Builder $native) use ($verified): void {
+                    $native->where(function (Builder $source): void {
+                        $source->whereNull('reviews.source')
+                            ->orWhere('reviews.source', '!=', 'hasaki');
+                    });
+                    $method = $verified ? 'whereHas' : 'whereDoesntHave';
+                    $native->{$method}(
+                        'orderItem',
+                        fn (Builder $orderItem): Builder => $this->applyVerifiedPurchaseConstraints($orderItem),
+                    );
+                });
+        });
     }
 
     /**

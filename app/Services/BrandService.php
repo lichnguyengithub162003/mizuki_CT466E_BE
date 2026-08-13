@@ -3,8 +3,10 @@
 namespace App\Services;
 
 use App\Models\Brand;
+use App\Models\User;
 use App\Repositories\BrandRepository;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -34,14 +36,38 @@ class BrandService extends BaseService
         return $brand;
     }
 
-    public function follow(Brand $brand): int
+    /**
+     * @return array{follower_count: int, is_following: true}
+     */
+    public function follow(User $user, Brand $brand): array
     {
-        return $this->brands->incrementFollowerCount($brand);
+        return DB::transaction(function () use ($user, $brand): array {
+            if ($this->brands->createFollowIfMissing($user, $brand)) {
+                $this->brands->incrementFollowerCount($brand);
+            }
+
+            return [
+                'follower_count' => $this->brands->followerCount($brand),
+                'is_following' => true,
+            ];
+        });
     }
 
-    public function unfollow(Brand $brand): int
+    /**
+     * @return array{follower_count: int, is_following: false}
+     */
+    public function unfollow(User $user, Brand $brand): array
     {
-        return $this->brands->decrementFollowerCount($brand);
+        return DB::transaction(function () use ($user, $brand): array {
+            if ($this->brands->deleteFollow($user, $brand)) {
+                $this->brands->decrementFollowerCount($brand);
+            }
+
+            return [
+                'follower_count' => $this->brands->followerCount($brand),
+                'is_following' => false,
+            ];
+        });
     }
 
     /**

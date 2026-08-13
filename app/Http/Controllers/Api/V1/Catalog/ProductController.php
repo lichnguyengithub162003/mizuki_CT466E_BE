@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api\V1\Catalog;
 
 use App\Http\Controllers\Api\V1\BaseController;
 use App\Http\Requests\Catalog\ProductIndexRequest;
+use App\Http\Requests\Catalog\ProductReviewIndexRequest;
 use App\Http\Requests\Catalog\ProductSearchRequest;
 use App\Http\Resources\Catalog\ProductDetailResource;
 use App\Http\Resources\Catalog\ProductListResource;
+use App\Http\Resources\Catalog\ProductReviewPageResource;
 use App\Http\Resources\Catalog\ProductSuggestResource;
 use App\Services\ProductService;
 use Illuminate\Http\JsonResponse;
@@ -127,6 +129,57 @@ class ProductController extends BaseController
 
     /**
      * @OA\Get(
+     *     path="/api/v1/products/{slug}/reviews",
+     *     operationId="listProductReviews",
+     *     tags={"Catalog"},
+     *     summary="Danh sách và thống kê đánh giá sản phẩm",
+     *
+     *     @OA\Parameter(name="slug", in="path", required=true, @OA\Schema(type="string")),
+     *     @OA\Parameter(name="rating", in="query", @OA\Schema(type="integer", minimum=1, maximum=5)),
+     *     @OA\Parameter(name="has_images", in="query", @OA\Schema(type="boolean")),
+     *     @OA\Parameter(name="verified_purchase", in="query", @OA\Schema(type="boolean")),
+     *     @OA\Parameter(name="sort", in="query", @OA\Schema(type="string", enum={"newest"})),
+     *     @OA\Parameter(name="per_page", in="query", @OA\Schema(type="integer", minimum=1, maximum=50)),
+     *     @OA\Parameter(name="page", in="query", @OA\Schema(type="integer", minimum=1)),
+     *
+     *     @OA\Response(response=200, description="Danh sách đánh giá có phân trang"),
+     *     @OA\Response(response=404, description="Không tìm thấy sản phẩm"),
+     *     @OA\Response(response=422, description="Query params không hợp lệ")
+     * )
+     */
+    public function reviews(ProductReviewIndexRequest $request, string $slug): JsonResponse
+    {
+        $result = $this->products->getActiveProductReviews($slug, $request->validated());
+
+        if ($result === null) {
+            return $this->errorResponse(
+                message: 'Không tìm thấy sản phẩm',
+                status: 404,
+            );
+        }
+
+        $paginator = $result['reviews'];
+
+        return $this->successResponse(
+            request: $request,
+            resource: new ProductReviewPageResource([
+                'summary' => $result['summary'],
+                'reviews' => $paginator->getCollection(),
+            ]),
+            message: 'Lấy đánh giá sản phẩm thành công!',
+            meta: [
+                'pagination' => [
+                    'current_page' => $paginator->currentPage(),
+                    'per_page' => $paginator->perPage(),
+                    'total' => $paginator->total(),
+                    'last_page' => $paginator->lastPage(),
+                ],
+            ],
+        );
+    }
+
+    /**
+     * @OA\Get(
      *     path="/api/v1/products/{slug}",
      *     operationId="showProduct",
      *     tags={"Catalog"},
@@ -160,7 +213,7 @@ class ProductController extends BaseController
      */
     public function show(Request $request, string $slug): JsonResponse
     {
-        $product = $this->products->getActiveProductDetail($slug);
+        $product = $this->products->getActiveProductDetail($slug, $request->user());
 
         if ($product === null) {
             return $this->errorResponse(

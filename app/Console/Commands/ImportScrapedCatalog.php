@@ -117,13 +117,13 @@ class ImportScrapedCatalog extends Command
 
         if (isset($data['write_counters'])) {
             foreach ($data['write_counters'] as $entity => $counts) {
-                $this->line(sprintf(
-                    '%s: created=%d updated=%d unchanged=%d',
-                    $entity,
-                    $counts['created'] ?? 0,
-                    $counts['updated'] ?? 0,
-                    $counts['unchanged'] ?? 0,
-                ));
+                $operations = [];
+
+                foreach ($counts as $operation => $count) {
+                    $operations[] = sprintf('%s=%d', $operation, $count);
+                }
+
+                $this->line(sprintf('%s: %s', $entity, implode(' ', $operations)));
             }
             $this->line('Skipped existing records: '.($data['skipped_existing_records'] ?? 0));
             $this->line('Mizuki seed inventory created: '.($data['inventory']['created'] ?? 0));

@@ -172,6 +172,90 @@ test('selected variant attributes are mapped without expanding options', functio
         ->and($mapped['metadata']['variant_options'])->toHaveCount(2);
 });
 
+test('source variant groups map as product family navigation metadata', function (): void {
+    $mapped = $this->mapper->map(($this->record)([
+        'variantGroups' => [[
+            'id' => 143,
+            'code' => 'capacity',
+            'label' => 'Dung TÃ­ch',
+            'displayType' => 'button',
+            'selected' => '100ml',
+            'options' => [[
+                'id' => 15,
+                'label' => '100ml',
+                'longLabel' => null,
+                'isDefault' => true,
+                'optionColor' => '#ffffff',
+                'isHot' => false,
+                'image' => 'https://example.test/options/100ml.jpg',
+                'products' => [[
+                    'productId' => 9740,
+                    'sku' => '100230056',
+                    'price' => '123000',
+                    'quantity' => 8,
+                    'optionId' => 15,
+                    'productUrl' => 'https://example.test/products/9740',
+                    'image' => 'https://example.test/images/9740.jpg',
+                    'image38' => 'https://example.test/images/9740-38.jpg',
+                    'image358' => 'https://example.test/images/9740-358.jpg',
+                ]],
+            ]],
+        ]],
+    ]));
+
+    expect($mapped['product']['source_variant_groups'])->toBe([[
+        'id' => 143,
+        'code' => 'capacity',
+        'label' => 'Dung TÃ­ch',
+        'display_type' => 'button',
+        'selected' => '100ml',
+        'options' => [[
+            'id' => 15,
+            'label' => '100ml',
+            'long_label' => null,
+            'is_default' => true,
+            'option_color' => '#ffffff',
+            'is_hot' => false,
+            'image' => 'https://example.test/options/100ml.jpg',
+            'products' => [[
+                'external_id' => '9740',
+                'source_sku' => '100230056',
+                'price' => 123000,
+                'quantity' => 8,
+                'option_id' => 15,
+                'source_url' => 'https://example.test/products/9740',
+                'image' => 'https://example.test/images/9740.jpg',
+                'image_38' => 'https://example.test/images/9740-38.jpg',
+                'image_358' => 'https://example.test/images/9740-358.jpg',
+            ]],
+        ]],
+    ]])->and($mapped['variant']['sku'])->toBe('HS-00123');
+});
+
+test('missing and malformed source variant groups normalize safely without changing legacy variants', function (): void {
+    $missing = $this->mapper->map(($this->record)(['variantGroups' => null]));
+    $malformed = $this->mapper->map(($this->record)([
+        'variantGroups' => [
+            'invalid',
+            [
+                'id' => 'color',
+                'options' => [
+                    'invalid',
+                    ['products' => ['invalid', ['productId' => null], ['productId' => '1735']]],
+                ],
+            ],
+        ],
+    ]));
+
+    expect($missing['product']['source_variant_groups'])->toBe([])
+        ->and($malformed['status'])->toBe('valid')
+        ->and($malformed['product']['source_variant_groups'])->toHaveCount(1)
+        ->and($malformed['product']['source_variant_groups'][0]['options'])->toHaveCount(1)
+        ->and($malformed['product']['source_variant_groups'][0]['options'][0]['products'])->toHaveCount(1)
+        ->and($malformed['variant']['sku'])->toBe('HS-00123')
+        ->and($malformed['variant']['attributes'])->toBe($missing['variant']['attributes']);
+});
+
 test('an invalid optional barcode is dropped without quarantining the product', function (): void {
     $mapped = $this->mapper->map(($this->record)([
         'specifications' => [
@@ -228,4 +312,92 @@ HTML;
         ->and($sanitized)->not->toContain('style=')
         ->and($sanitized)->not->toContain('javascript:')
         ->and($sanitized)->not->toContain('data:text');
+});
+
+test('product questions and answers map deterministically in source order', function (): void {
+    $mapped = $this->mapper->map(($this->record)([
+        'qa' => [
+            [
+                'author' => 'Customer A',
+                'question' => 'First question?',
+                'date' => '2026-06-13, 20:11',
+                'answers' => [[
+                    'author' => 'Hasaki',
+                    'text' => 'First answer.',
+                    'date' => '2026-06-13, 21:04',
+                ]],
+            ],
+            [
+                'author' => 'Customer B',
+                'question' => 'Second question?',
+                'date' => '2026-06-12, 10:00',
+                'answers' => [],
+            ],
+        ],
+    ]));
+
+    expect($mapped['questions'])->toHaveCount(2)
+        ->and(array_column($mapped['questions'], 'question'))->toBe([
+            'First question?',
+            'Second question?',
+        ])
+        ->and(array_column($mapped['questions'], 'sort_order'))->toBe([0, 1])
+        ->and($mapped['questions'][0]['asked_at'])->toBe('2026-06-13 20:11:00')
+        ->and($mapped['questions'][0]['source_date'])->toBeNull()
+        ->and($mapped['questions'][0]['answers'][0]['answered_at'])->toBe('2026-06-13 21:04:00')
+        ->and($mapped['questions'][0]['external_key'])->toHaveLength(64)
+        ->and($mapped['questions'][0]['answers'][0]['external_key'])->toHaveLength(64);
+});
+
+test('malformed optional question dates are preserved and malformed records are skipped', function (): void {
+    $mapped = $this->mapper->map(($this->record)([
+        'qa' => [
+            ['question' => '', 'date' => 'not-a-date'],
+            'malformed',
+            [
+                'question' => 'Valid question',
+                'date' => 'unknown source date',
+                'answers' => [
+                    ['text' => '', 'date' => 'bad'],
+                    ['text' => 'Valid answer', 'date' => 'also unknown'],
+                ],
+            ],
+        ],
+    ]));
+
+    expect($mapped['status'])->toBe('valid')
+        ->and($mapped['questions'])->toHaveCount(1)
+        ->and($mapped['questions'][0]['asked_at'])->toBeNull()
+        ->and($mapped['questions'][0]['source_date'])->toBe('unknown source date')
+        ->and($mapped['questions'][0]['answers'])->toHaveCount(1)
+        ->and($mapped['questions'][0]['answers'][0]['answered_at'])->toBeNull()
+        ->and($mapped['questions'][0]['answers'][0]['source_date'])->toBe('also unknown');
+});
+
+test('duplicate imported questions and answers collapse to their first source occurrence', function (): void {
+    $question = [
+        'author' => 'Customer',
+        'question' => 'Duplicate question?',
+        'date' => '2026-04-18, 22:58',
+        'answers' => [
+            [
+                'author' => 'Hasaki',
+                'text' => 'Duplicate answer.',
+                'date' => '2026-04-19, 08:00',
+            ],
+            [
+                'author' => 'Hasaki',
+                'text' => 'Duplicate answer.',
+                'date' => '2026-04-19, 08:00',
+            ],
+        ],
+    ];
+    $mapped = $this->mapper->map(($this->record)([
+        'qa' => [$question, $question],
+    ]));
+
+    expect($mapped['questions'])->toHaveCount(1)
+        ->and($mapped['questions'][0]['sort_order'])->toBe(0)
+        ->and($mapped['questions'][0]['answers'])->toHaveCount(1)
+        ->and($mapped['questions'][0]['answers'][0]['sort_order'])->toBe(0);
 });

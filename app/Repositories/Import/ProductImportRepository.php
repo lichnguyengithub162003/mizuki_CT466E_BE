@@ -18,6 +18,11 @@ use Illuminate\Support\Facades\DB;
 
 class ProductImportRepository
 {
+    public function __construct(
+        private readonly ProductQuestionImportRepository $questions,
+        private readonly ProductReviewImportRepository $reviews,
+    ) {}
+
     public function disableQueryLog(): void
     {
         DB::connection()->disableQueryLog();
@@ -149,6 +154,9 @@ class ProductImportRepository
                 'unchanged' => 0,
                 'stale_skipped' => 0,
             ],
+            'questions' => $this->synchronizationCounters(),
+            'question_answers' => $this->synchronizationCounters(),
+            'reviews' => $this->reviewSynchronizationCounters(),
         ];
         $brands = $this->persistBrands($records, $counters['brands']);
         $categories = $this->persistCategories($records, $counters['categories']);
@@ -165,6 +173,18 @@ class ProductImportRepository
             );
             $variant = $this->persistVariant($record, $product, $counters['variants']);
             $this->persistImages($record, $product, $counters['images']);
+            $this->questions->synchronize(
+                $product,
+                $record['questions'],
+                $counters['questions'],
+                $counters['question_answers'],
+            );
+            $this->reviews->synchronize(
+                $product,
+                $record['reviews'],
+                $record['review_import_stats'],
+                $counters['reviews'],
+            );
 
             if (count($samples) < 5) {
                 $samples[] = [
@@ -868,6 +888,30 @@ class ProductImportRepository
     private function writeCounters(): array
     {
         return ['created' => 0, 'updated' => 0, 'restored' => 0, 'unchanged' => 0];
+    }
+
+    /**
+     * @return array{created: int, updated: int, unchanged: int, deleted: int}
+     */
+    private function synchronizationCounters(): array
+    {
+        return ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'deleted' => 0];
+    }
+
+    /**
+     * @return array{created: int, updated: int, unchanged: int, deleted: int, skipped: int, duplicate_collapsed: int, failed: int}
+     */
+    private function reviewSynchronizationCounters(): array
+    {
+        return [
+            'created' => 0,
+            'updated' => 0,
+            'unchanged' => 0,
+            'deleted' => 0,
+            'skipped' => 0,
+            'duplicate_collapsed' => 0,
+            'failed' => 0,
+        ];
     }
 
     /**

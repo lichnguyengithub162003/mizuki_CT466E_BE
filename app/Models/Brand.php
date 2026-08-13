@@ -38,4 +38,12 @@ class Brand extends Model
     {
         return $this->hasMany(Product::class);
     }
+
+    /**
+     * @return HasMany<BrandFollow, $this>
+     */
+    public function follows(): HasMany
+    {
+        return $this->hasMany(BrandFollow::class);
+    }
 }

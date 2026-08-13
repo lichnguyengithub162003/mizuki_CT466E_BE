@@ -220,7 +220,7 @@ class ProductJsonImportService
                     $summary['warnings'][$warning] = ($summary['warnings'][$warning] ?? 0) + 1;
                 }
 
-                if ($item['metadata']['variant_options'] === []) {
+                if ($item['product']['source_variant_groups'] === []) {
                     $summary['quality']['products_without_source_variant_groups']++;
                 }
 
@@ -881,7 +881,7 @@ class ProductJsonImportService
 
         $productsWithoutSourceVariantGroups = count(array_filter(
             $validRecords,
-            static fn (array $item): bool => $item['metadata']['variant_options'] === [],
+            static fn (array $item): bool => $item['product']['source_variant_groups'] === [],
         ));
         $lowResolutionImages = 0;
 

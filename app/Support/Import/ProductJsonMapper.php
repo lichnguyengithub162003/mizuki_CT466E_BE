@@ -6,6 +6,11 @@ use Illuminate\Support\Str;
 
 class ProductJsonMapper
 {
+    public function __construct(
+        private readonly ProductQuestionJsonMapper $questions = new ProductQuestionJsonMapper,
+        private readonly ProductReviewJsonMapper $reviews = new ProductReviewJsonMapper,
+    ) {}
+
     /**
      * @param  array<string, mixed>  $record
      * @return array<string, mixed>
@@ -83,6 +88,8 @@ class ProductJsonMapper
         $specifications = is_array($record['specifications'] ?? null)
             ? $record['specifications']
             : [];
+        $reviews = $this->reviews->map($sourceId, $record['reviews'] ?? null);
+        $sourceVariantGroups = $this->sourceVariantGroups($record['variantGroups'] ?? null);
 
         return [
             'status' => 'valid',
@@ -102,6 +109,7 @@ class ProductJsonMapper
                 'source' => 'hasaki',
                 'external_id' => $sourceId,
                 'source_url' => $this->nullableString($record['url'] ?? null),
+                'source_variant_groups' => $sourceVariantGroups,
                 'name' => $name,
                 'slug' => $productSlug,
                 'short_description' => $this->nullableString($record['subName'] ?? null),
@@ -129,6 +137,9 @@ class ProductJsonMapper
                 'is_active' => true,
             ],
             'images' => $images,
+            'questions' => $this->questions->map($record['qa'] ?? null),
+            'reviews' => $reviews['records'],
+            'review_import_stats' => $reviews['stats'],
             'metadata' => [
                 'source_url' => $this->nullableString($record['url'] ?? null),
                 'publication_code' => $this->nullableString($record['publicationCode'] ?? null),
@@ -250,6 +261,141 @@ class ProductJsonMapper
         }
 
         return $attributes;
+    }
+
+    /**
+     * Normalize source product-family selectors without creating sellable variants.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function sourceVariantGroups(mixed $groups): array
+    {
+        if (! is_array($groups) || ! array_is_list($groups)) {
+            return [];
+        }
+
+        $normalized = [];
+
+        foreach ($groups as $group) {
+            if (! is_array($group)) {
+                continue;
+            }
+
+            $options = [];
+
+            foreach ($this->listValue($group['options'] ?? null) as $option) {
+                if (! is_array($option)) {
+                    continue;
+                }
+
+                $products = [];
+
+                foreach ($this->listValue($option['products'] ?? null) as $product) {
+                    if (! is_array($product)) {
+                        continue;
+                    }
+
+                    $externalId = $this->nullableString($product['productId'] ?? null);
+
+                    if ($externalId === null) {
+                        continue;
+                    }
+
+                    $products[] = [
+                        'external_id' => $externalId,
+                        'source_sku' => $this->nullableString($product['sku'] ?? null),
+                        'price' => $this->nullableNumber($product['price'] ?? null),
+                        'quantity' => $this->nullableNumber($product['quantity'] ?? null),
+                        'option_id' => $this->nullableIdentifier($product['optionId'] ?? null),
+                        'source_url' => $this->nullableString($product['productUrl'] ?? null),
+                        'image' => $this->nullableString($product['image'] ?? null),
+                        'image_38' => $this->nullableString($product['image38'] ?? null),
+                        'image_358' => $this->nullableString($product['image358'] ?? null),
+                    ];
+                }
+
+                $options[] = [
+                    'id' => $this->nullableIdentifier($option['id'] ?? null),
+                    'label' => $this->nullableString($option['label'] ?? null),
+                    'long_label' => $this->nullableString($option['longLabel'] ?? null),
+                    'is_default' => $this->booleanValue($option['isDefault'] ?? false),
+                    'option_color' => $this->nullableString($option['optionColor'] ?? null),
+                    'is_hot' => $this->booleanValue($option['isHot'] ?? false),
+                    'image' => $this->nullableString($option['image'] ?? null),
+                    'products' => $products,
+                ];
+            }
+
+            $normalized[] = [
+                'id' => $this->nullableIdentifier($group['id'] ?? null),
+                'code' => $this->nullableString($group['code'] ?? null),
+                'label' => $this->nullableString($group['label'] ?? null),
+                'display_type' => $this->nullableString($group['displayType'] ?? null),
+                'selected' => $this->nullableString($group['selected'] ?? null),
+                'options' => $options,
+            ];
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @return list<mixed>
+     */
+    private function listValue(mixed $value): array
+    {
+        return is_array($value) && array_is_list($value) ? $value : [];
+    }
+
+    private function nullableIdentifier(mixed $value): int|string|null
+    {
+        if (is_int($value)) {
+            return $value;
+        }
+
+        $value = $this->nullableString($value);
+
+        if ($value === null) {
+            return null;
+        }
+
+        return preg_match('/^-?\d+$/', $value) === 1 ? (int) $value : $value;
+    }
+
+    private function nullableNumber(mixed $value): int|float|null
+    {
+        if (is_int($value) || (is_float($value) && is_finite($value))) {
+            return $value;
+        }
+
+        if (! is_string($value) || ! is_numeric(trim($value))) {
+            return null;
+        }
+
+        $number = (float) trim($value);
+
+        if (! is_finite($number)) {
+            return null;
+        }
+
+        return floor($number) === $number ? (int) $number : $number;
+    }
+
+    private function booleanValue(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_int($value)) {
+            return $value === 1;
+        }
+
+        if (is_string($value)) {
+            return in_array(mb_strtolower(trim($value)), ['1', 'true'], true);
+        }
+
+        return false;
     }
 
     /**

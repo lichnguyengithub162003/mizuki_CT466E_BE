@@ -259,5 +259,6 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
     Route::get('brands/{slug}', [BrandController::class, 'show'])->name('brands.show');
     Route::get('products', [ProductController::class, 'index'])->name('products.index');
     Route::get('products/search', [ProductController::class, 'search'])->name('products.search');
+    Route::get('products/{slug}/reviews', [ProductController::class, 'reviews'])->name('products.reviews');
     Route::get('products/{slug}', [ProductController::class, 'show'])->name('products.show');
 });
