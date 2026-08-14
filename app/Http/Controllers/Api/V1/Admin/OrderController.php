@@ -8,14 +8,14 @@ use App\Http\Resources\Admin\OrderResource;
 use App\Services\Admin\OrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Annotations as OA;
 
 class OrderController extends BaseController
 {
     public function __construct(
         private readonly OrderService $orders,
-    ) {
-    }
+    ) {}
 
     /**
      * @OA\Get(
@@ -23,11 +23,13 @@ class OrderController extends BaseController
      *     operationId="adminListOrders",
      *     tags={"Admin Orders"},
      *     summary="Danh sách đơn hàng theo phạm vi chi nhánh",
+     *
      *     @OA\Parameter(name="status", in="query", @OA\Schema(type="string")),
      *     @OA\Parameter(name="branch_id", in="query", @OA\Schema(type="integer")),
      *     @OA\Parameter(name="keyword", in="query", @OA\Schema(type="string")),
      *     @OA\Parameter(name="page", in="query", @OA\Schema(type="integer", minimum=1)),
      *     @OA\Parameter(name="per_page", in="query", @OA\Schema(type="integer", minimum=1, maximum=100)),
+     *
      *     @OA\Response(response=200, description="Danh sách đơn hàng"),
      *     @OA\Response(response=401, description="Chưa đăng nhập"),
      *     @OA\Response(response=403, description="Không có quyền")
@@ -51,7 +53,9 @@ class OrderController extends BaseController
      *     operationId="adminShowOrder",
      *     tags={"Admin Orders"},
      *     summary="Chi tiết đơn hàng",
+     *
      *     @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *
      *     @OA\Response(response=200, description="Chi tiết đơn hàng"),
      *     @OA\Response(response=404, description="Không tìm thấy đơn hàng")
      * )
@@ -77,7 +81,9 @@ class OrderController extends BaseController
      *     operationId="adminConfirmOrder",
      *     tags={"Admin Orders"},
      *     summary="Xác nhận đơn hàng đang chờ",
+     *
      *     @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *
      *     @OA\Response(response=200, description="Đã xác nhận đơn hàng"),
      *     @OA\Response(response=404, description="Không tìm thấy đơn hàng"),
      *     @OA\Response(response=422, description="Trạng thái không hợp lệ")
@@ -95,6 +101,113 @@ class OrderController extends BaseController
             request: $request,
             resource: new OrderResource($order),
             message: 'Xác nhận đơn hàng thành công!',
+        );
+    }
+
+    /**
+     * @OA\Post(
+     *     path="/api/v1/admin/orders/{id}/shipment",
+     *     operationId="adminCreateGhnShipment",
+     *     tags={"Admin Orders"},
+     *     summary="Tạo vận đơn GHN cho đơn giao hàng",
+     *
+     *     @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *
+     *     @OA\Response(response=200, description="Tạo vận đơn GHN thành công"),
+     *     @OA\Response(response=404, description="Không tìm thấy đơn hàng"),
+     *     @OA\Response(response=422, description="Đơn hàng hoặc dữ liệu giao hàng không hợp lệ")
+     * )
+     */
+    public function createShipment(Request $request, int $id): JsonResponse
+    {
+        $shipment = $this->orders->createShipment($request->user(), $id);
+
+        if ($shipment === null) {
+            return $this->orderNotFound();
+        }
+
+        return $this->successResponse(
+            request: $request,
+            resource: new JsonResource([
+                'id' => $shipment->id,
+                'order_id' => $shipment->order_id,
+                'provider' => $shipment->provider,
+                'ghn_order_code' => $shipment->ghn_order_code,
+                'status' => $shipment->status,
+                'shipping_fee' => $shipment->shipping_fee,
+                'expected_delivery_at' => $shipment->expected_delivery_at?->toISOString(),
+            ]),
+            message: 'Tạo vận đơn GHN thành công!',
+        );
+    }
+
+    /**
+     * @OA\Post(
+     *     path="/api/v1/admin/orders/{id}/shipment/cancel",
+     *     operationId="adminCancelGhnShipment",
+     *     tags={"Admin Orders"},
+     *     summary="Hủy vận đơn GHN",
+     *
+     *     @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *
+     *     @OA\Response(response=200, description="Hủy vận đơn GHN thành công"),
+     *     @OA\Response(response=404, description="Không tìm thấy đơn hàng hoặc vận đơn"),
+     *     @OA\Response(response=422, description="Không thể hủy vận đơn")
+     * )
+     */
+    public function cancelShipment(Request $request, int $id): JsonResponse
+    {
+        $shipment = $this->orders->cancelShipment($request->user(), $id);
+
+        if ($shipment === null) {
+            return $this->orderNotFound();
+        }
+
+        return $this->successResponse(
+            request: $request,
+            resource: new JsonResource([
+                'id' => $shipment->id,
+                'order_id' => $shipment->order_id,
+                'provider' => $shipment->provider,
+                'ghn_order_code' => $shipment->ghn_order_code,
+                'status' => $shipment->status,
+                'cancelled_at' => $shipment->cancelled_at?->toISOString(),
+            ]),
+            message: 'Hủy vận đơn GHN thành công!',
+        );
+    }
+
+    /**
+     * @OA\Post(
+     *     path="/api/v1/admin/orders/{id}/shipment/label",
+     *     operationId="adminGenerateGhnShipmentLabel",
+     *     tags={"Admin Orders"},
+     *     summary="Tạo token và URL in phiếu giao hàng GHN",
+     *
+     *     @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *
+     *     @OA\Response(response=200, description="Tạo phiếu giao hàng GHN thành công"),
+     *     @OA\Response(response=404, description="Không tìm thấy đơn hàng hoặc vận đơn"),
+     *     @OA\Response(response=422, description="Không thể tạo phiếu giao hàng")
+     * )
+     */
+    public function shipmentLabel(Request $request, int $id): JsonResponse
+    {
+        $result = $this->orders->shipmentLabel($request->user(), $id);
+
+        if ($result === null) {
+            return $this->orderNotFound();
+        }
+
+        return $this->successResponse(
+            request: $request,
+            resource: new JsonResource([
+                'order_id' => $result['shipment']->order_id,
+                'ghn_order_code' => $result['shipment']->ghn_order_code,
+                'print_token' => $result['print_token'],
+                'print_url' => $result['print_url'],
+            ]),
+            message: 'Tạo phiếu giao hàng GHN thành công!',
         );
     }
 

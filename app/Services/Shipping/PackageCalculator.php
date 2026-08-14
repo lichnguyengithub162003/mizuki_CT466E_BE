@@ -3,6 +3,7 @@
 namespace App\Services\Shipping;
 
 use App\Models\Cart;
+use App\Models\Order;
 use Illuminate\Validation\ValidationException;
 
 class PackageCalculator
@@ -71,6 +72,72 @@ class PackageCalculator
 
         if ($totalWeight <= 0) {
             $this->fail('weight', 'Tổng khối lượng kiện hàng không hợp lệ!');
+        }
+
+        return [
+            'weight' => $totalWeight,
+            'length' => $length,
+            'width' => $width,
+            'height' => $height,
+            'items' => $items,
+        ];
+    }
+
+    /**
+     * @return array{
+     *     weight: int,
+     *     length: int,
+     *     width: int,
+     *     height: int,
+     *     items: list<array{name: string, code: string, quantity: int, price: int, weight: int, length: int, width: int, height: int}>
+     * }
+     */
+    public function calculateForOrder(Order $order): array
+    {
+        if (! $order->relationLoaded('items') || $order->items->isEmpty()) {
+            $this->fail('shipping', 'Đơn hàng không có sản phẩm để tạo vận đơn');
+        }
+
+        $length = $this->dimension('default_length_cm');
+        $width = $this->dimension('default_width_cm');
+        $height = $this->dimension('default_height_cm');
+        $maxWeight = max(1, (int) config('shipping.package.max_weight_grams', 30_000));
+        $totalWeight = 0;
+        $items = [];
+
+        foreach ($order->items->sortBy('product_variant_id') as $item) {
+            $quantity = (int) $item->quantity;
+            $variant = $item->productVariant;
+            $unitWeight = $variant?->weight;
+
+            if ($quantity <= 0) {
+                $this->fail('shipping', 'Số lượng sản phẩm trong đơn hàng không hợp lệ');
+            }
+
+            if (! is_int($unitWeight) || $unitWeight <= 0) {
+                $this->fail('shipping', "Sản phẩm {$item->sku} chưa có khối lượng hợp lệ");
+            }
+
+            if ($quantity > intdiv(PHP_INT_MAX, $unitWeight)) {
+                $this->fail('shipping', 'Tổng khối lượng kiện hàng vượt quá giới hạn cho phép');
+            }
+
+            $lineWeight = $unitWeight * $quantity;
+
+            if ($lineWeight > $maxWeight - $totalWeight) {
+                $this->fail('shipping', 'Tổng khối lượng kiện hàng vượt quá giới hạn cho phép');
+            }
+
+            $totalWeight += $lineWeight;
+            $items[] = [
+                'name' => mb_substr((string) $item->product_name, 0, 255),
+                'quantity' => $quantity,
+                'price' => max(0, (int) $item->unit_price),
+                'weight' => $unitWeight,
+                'length' => $length,
+                'width' => $width,
+                'height' => $height,
+            ];
         }
 
         return [

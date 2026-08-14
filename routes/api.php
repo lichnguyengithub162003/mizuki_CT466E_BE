@@ -145,6 +145,9 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
         Route::get('ipn', [VnPayController::class, 'ipn'])->name('ipn');
     });
 
+    Route::post('shipping/ghn/webhook', [ShippingController::class, 'webhook'])
+        ->name('shipping.ghn.webhook');
+
     // Admin routes
     Route::prefix('admin')->name('admin.')->middleware('auth:sanctum')->group(function (): void {
         Route::prefix('promotions')
@@ -164,6 +167,11 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
             ->group(function (): void {
                 Route::get('/', [AdminOrderController::class, 'index'])->name('index');
                 Route::post('{id}/confirm', [AdminOrderController::class, 'confirm'])->name('confirm');
+                Route::post('{id}/shipment', [AdminOrderController::class, 'createShipment'])->name('shipment.create');
+                Route::post('{id}/shipment/cancel', [AdminOrderController::class, 'cancelShipment'])
+                    ->name('shipment.cancel');
+                Route::post('{id}/shipment/label', [AdminOrderController::class, 'shipmentLabel'])
+                    ->name('shipment.label');
                 Route::get('{id}', [AdminOrderController::class, 'show'])->name('show');
             });
 

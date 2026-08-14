@@ -169,6 +169,91 @@ class GhnClient
     }
 
     /**
+     * @param  array<string, mixed>  $payload
+     * @return array{order_code: string, total_fee: int|null, expected_delivery_time: string|null}
+     */
+    public function createShipment(array $payload): array
+    {
+        $data = $this->request(
+            operation: 'create_shipment',
+            method: 'POST',
+            endpoint: 'v2/shipping-order/create',
+            payload: $payload,
+            requiresShopId: true,
+        );
+        $orderCode = $data['order_code'] ?? null;
+
+        if (! is_scalar($orderCode)
+            || trim((string) $orderCode) === ''
+            || mb_strlen(trim((string) $orderCode)) > 100) {
+            throw new GhnApiException('create_shipment', providerCode: 'malformed_data');
+        }
+
+        $totalFee = $data['total_fee'] ?? null;
+
+        if ($totalFee !== null && ! $this->isNonNegativeInteger($totalFee)) {
+            throw new GhnApiException('create_shipment', providerCode: 'malformed_data');
+        }
+
+        $expectedDeliveryTime = $data['expected_delivery_time'] ?? null;
+
+        if ($expectedDeliveryTime !== null && ! is_scalar($expectedDeliveryTime)) {
+            throw new GhnApiException('create_shipment', providerCode: 'malformed_data');
+        }
+
+        return [
+            'order_code' => trim((string) $orderCode),
+            'total_fee' => $totalFee === null ? null : (int) $totalFee,
+            'expected_delivery_time' => $expectedDeliveryTime === null
+                ? null
+                : trim((string) $expectedDeliveryTime),
+        ];
+    }
+
+    /**
+     * @param  list<string>  $orderCodes
+     * @return array<array-key, mixed>
+     */
+    public function cancelOrders(array $orderCodes): array
+    {
+        return $this->request(
+            operation: 'cancel_shipments',
+            method: 'POST',
+            endpoint: 'v2/switch-status/cancel',
+            payload: ['order_codes' => $orderCodes],
+            requiresShopId: true,
+        );
+    }
+
+    /**
+     * @param  list<string>  $orderCodes
+     * @return array{print_token: string, print_url: string}
+     */
+    public function generatePrintToken(array $orderCodes): array
+    {
+        $data = $this->request(
+            operation: 'generate_print_token',
+            method: 'POST',
+            endpoint: 'v2/a5/gen-token',
+            payload: ['order_codes' => $orderCodes],
+        );
+        $token = $data['token'] ?? null;
+
+        if (! is_scalar($token)
+            || trim((string) $token) === ''
+            || mb_strlen(trim((string) $token)) > 2048) {
+            throw new GhnApiException('generate_print_token', providerCode: 'malformed_data');
+        }
+
+        $printToken = trim((string) $token);
+
+        return [
+            'print_token' => $printToken,
+            'print_url' => $this->printUrl($printToken),
+        ];
+    }
+
+    /**
      * Reusable provider request foundation for later shipping operations.
      *
      * @param  array<string, mixed>  $payload
@@ -377,6 +462,25 @@ class GhnClient
     {
         return is_int($value) && $value >= 0
             || is_string($value) && ctype_digit($value);
+    }
+
+    private function printUrl(string $token): string
+    {
+        $parts = parse_url($this->baseUrl);
+
+        if (! is_array($parts)
+            || ! isset($parts['scheme'], $parts['host'])
+            || ! in_array($parts['scheme'], ['http', 'https'], true)) {
+            throw new GhnApiException('generate_print_token', providerCode: 'configuration_invalid');
+        }
+
+        $origin = $parts['scheme'].'://'.$parts['host'];
+
+        if (isset($parts['port'])) {
+            $origin .= ':'.$parts['port'];
+        }
+
+        return $origin.'/a5/public-api/printA5?token='.rawurlencode($token);
     }
 
     private function assertConfigured(string $operation, bool $requiresShopId): void

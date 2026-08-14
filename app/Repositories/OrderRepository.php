@@ -6,6 +6,7 @@ use App\Enums\OrderStatus;
 use App\Enums\UserRole;
 use App\Models\BranchInventory;
 use App\Models\Order;
+use App\Models\Shipment;
 use App\Models\UserAddress;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
@@ -216,6 +217,31 @@ class OrderRepository extends BaseRepository
             ->whereKey($orderId)
             ->lockForUpdate()
             ->first();
+    }
+
+    public function lockForAdminShipment(
+        int $orderId,
+        UserRole $role,
+        ?int $branchId,
+    ): ?Order {
+        return $this->adminScope($this->query(), $role, $branchId)
+            ->whereKey($orderId)
+            ->with([
+                'branch:id,name,phone,address,ghn_district_id,ghn_ward_code,is_active',
+                'items.productVariant:id,weight',
+                'shipment',
+            ])
+            ->lockForUpdate()
+            ->first();
+    }
+
+    /** @param array<string, mixed> $attributes */
+    public function createShipment(Order $order, array $attributes): Shipment
+    {
+        /** @var Shipment $shipment */
+        $shipment = $order->shipment()->create($attributes);
+
+        return $shipment;
     }
 
     public function markConfirmed(Order $order): Order
