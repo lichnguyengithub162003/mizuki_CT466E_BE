@@ -168,12 +168,18 @@ test('it logs out an authenticated customer and invalidates the session', functi
         ->and($request->session()->token())->not->toBe($tokenBeforeLogout);
 });
 
-test('it rejects non-customer users from logout', function (): void {
+test('it logs out an authenticated staff user', function (): void {
     $service = new CustomerAuthService(new UserRepository(new User()));
     $user = User::factory()->create([
         'role' => UserRole::Cashier,
     ]);
     $request = Request::create('/api/v1/auth/logout', 'POST');
+    $request->setLaravelSession($this->app['session.store']);
+    $tokenBeforeLogout = $request->session()->token();
+    $this->actingAs($user);
 
     $service->logout($user, $request);
-})->throws(AuthorizationException::class, 'Tài khoản không có quyền truy cập khu vực khách hàng!');
+
+    $this->assertGuest();
+    expect($request->session()->token())->not->toBe($tokenBeforeLogout);
+});

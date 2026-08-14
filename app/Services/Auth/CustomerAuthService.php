@@ -83,11 +83,8 @@ class CustomerAuthService extends BaseService
         return $user;
     }
 
-    /** @throws AuthorizationException */
     public function logout(User $user, Request $request): void
     {
-        $this->currentCustomer($user);
-
         Auth::guard('web')->logout();
 
         if ($request->hasSession()) {

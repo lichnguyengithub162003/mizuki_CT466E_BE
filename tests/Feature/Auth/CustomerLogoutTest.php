@@ -64,16 +64,33 @@ test('a repeated logout request is rejected after the session is invalidated', f
         ->assertJsonPath('message', 'Bạn cần đăng nhập để tiếp tục');
 });
 
-test('an authenticated staff user cannot log out through the customer endpoint', function (): void {
+test('an authenticated staff user can log out through the shared endpoint', function (
+    UserRole $role,
+    string $email,
+): void {
     $user = User::factory()->create([
-        'email' => 'cashier@example.com',
-        'role' => UserRole::Cashier,
+        'email' => $email,
+        'password' => 'secret-password',
+        'role' => $role,
     ]);
-    $this->actingAs($user);
 
-    $response = $this->postJson('/api/v1/auth/logout');
+    $this->postJson('/api/v1/auth/staff-login', [
+        'email' => $email,
+        'password' => 'secret-password',
+    ])->assertOk();
 
-    $response->assertForbidden()
+    $this->postJson('/api/v1/auth/logout')
+        ->assertOk()
+        ->assertJsonPath('success', true)
+        ->assertJsonPath('data.id', $user->id)
+        ->assertJsonPath('data.role', $role->value)
+        ->assertJsonPath('message', 'Đăng xuất thành công!');
+
+    $this->getJson('/api/v1/auth/me')
+        ->assertUnauthorized()
         ->assertJsonPath('success', false)
-        ->assertJsonPath('message', 'Tài khoản không có quyền truy cập khu vực khách hàng!');
-});
+        ->assertJsonPath('message', 'Bạn cần đăng nhập để tiếp tục');
+})->with([
+    'super admin' => [UserRole::SuperAdmin, 'super-admin@example.com'],
+    'branch manager' => [UserRole::BranchManager, 'branch-manager@example.com'],
+]);
