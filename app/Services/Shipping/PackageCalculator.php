@@ -89,7 +89,7 @@ class PackageCalculator
      *     length: int,
      *     width: int,
      *     height: int,
-     *     items: list<array{name: string, code: string, quantity: int, price: int, weight: int, length: int, width: int, height: int}>
+     *     items: list<array{name: string, quantity: int, price: int, weight: int, length: int, width: int, height: int}>
      * }
      */
     public function calculateForOrder(Order $order): array
