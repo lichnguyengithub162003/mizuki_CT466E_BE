@@ -3,6 +3,7 @@
 use App\Models\Appointment;
 use App\Models\Branch;
 use App\Models\BranchService;
+use App\Models\Review;
 use App\Models\Service;
 
 test('it casts service duration, price, visibility, and sort order', function (): void {
@@ -20,9 +21,10 @@ test('it casts service duration, price, visibility, and sort order', function ()
 });
 
 test('it defines service availability and appointment relationships', function (): void {
-    $service = new Service();
+    $service = new Service;
 
     expect($service->branchServices()->getRelated())->toBeInstanceOf(BranchService::class)
         ->and($service->branches()->getRelated())->toBeInstanceOf(Branch::class)
-        ->and($service->appointments()->getRelated())->toBeInstanceOf(Appointment::class);
+        ->and($service->appointments()->getRelated())->toBeInstanceOf(Appointment::class)
+        ->and($service->reviews()->getRelated())->toBeInstanceOf(Review::class);
 });

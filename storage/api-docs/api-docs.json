@@ -422,6 +422,96 @@
                 }
             }
         },
+        "/api/v1/admin/orders/{id}/shipment": {
+            "post": {
+                "tags": [
+                    "Admin Orders"
+                ],
+                "summary": "Tạo vận đơn GHN cho đơn giao hàng",
+                "operationId": "adminCreateGhnShipment",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Tạo vận đơn GHN thành công"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy đơn hàng"
+                    },
+                    "422": {
+                        "description": "Đơn hàng hoặc dữ liệu giao hàng không hợp lệ"
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/orders/{id}/shipment/cancel": {
+            "post": {
+                "tags": [
+                    "Admin Orders"
+                ],
+                "summary": "Hủy vận đơn GHN",
+                "operationId": "adminCancelGhnShipment",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Hủy vận đơn GHN thành công"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy đơn hàng hoặc vận đơn"
+                    },
+                    "422": {
+                        "description": "Không thể hủy vận đơn"
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/orders/{id}/shipment/label": {
+            "post": {
+                "tags": [
+                    "Admin Orders"
+                ],
+                "summary": "Tạo token và URL in phiếu giao hàng GHN",
+                "operationId": "adminGenerateGhnShipmentLabel",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Tạo phiếu giao hàng GHN thành công"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy đơn hàng hoặc vận đơn"
+                    },
+                    "422": {
+                        "description": "Không thể tạo phiếu giao hàng"
+                    }
+                }
+            }
+        },
         "/api/v1/admin/promotions": {
             "get": {
                 "tags": [
@@ -1825,6 +1915,86 @@
                 }
             }
         },
+        "/api/v1/products/{slug}/reviews": {
+            "get": {
+                "tags": [
+                    "Catalog"
+                ],
+                "summary": "Danh sách và thống kê đánh giá sản phẩm",
+                "operationId": "listProductReviews",
+                "parameters": [
+                    {
+                        "name": "slug",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "rating",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 5,
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "name": "has_images",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "verified_purchase",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "sort",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "newest"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 50,
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Danh sách đánh giá có phân trang"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy sản phẩm"
+                    },
+                    "422": {
+                        "description": "Query params không hợp lệ"
+                    }
+                }
+            }
+        },
         "/api/v1/products/{slug}": {
             "get": {
                 "tags": [
@@ -2994,6 +3164,244 @@
                 }
             }
         },
+        "/api/v1/customer/reviews": {
+            "post": {
+                "tags": [
+                    "Customer Reviews"
+                ],
+                "summary": "Đánh giá sản phẩm đã mua",
+                "operationId": "storeCustomerProductReview",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "order_item_id",
+                                    "rating"
+                                ],
+                                "properties": {
+                                    "order_item_id": {
+                                        "type": "integer"
+                                    },
+                                    "rating": {
+                                        "type": "integer",
+                                        "maximum": 5,
+                                        "minimum": 1
+                                    },
+                                    "title": {
+                                        "type": "string",
+                                        "nullable": true
+                                    },
+                                    "comment": {
+                                        "type": "string",
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Đánh giá sản phẩm thành công"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không có quyền"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy sản phẩm đã mua"
+                    },
+                    "422": {
+                        "description": "Không đủ điều kiện đánh giá"
+                    }
+                }
+            }
+        },
+        "/api/v1/customer/reviews/{review}": {
+            "patch": {
+                "tags": [
+                    "Customer Reviews"
+                ],
+                "summary": "Cập nhật đánh giá sản phẩm của khách hàng",
+                "operationId": "updateCustomerProductReview",
+                "parameters": [
+                    {
+                        "name": "review",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "properties": {
+                                    "rating": {
+                                        "type": "integer",
+                                        "maximum": 5,
+                                        "minimum": 1
+                                    },
+                                    "title": {
+                                        "type": "string",
+                                        "nullable": true
+                                    },
+                                    "comment": {
+                                        "type": "string",
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Cập nhật đánh giá thành công"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không có quyền"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy đánh giá"
+                    },
+                    "422": {
+                        "description": "Dữ liệu không hợp lệ"
+                    }
+                }
+            }
+        },
+        "/api/v1/customer/service-reviews": {
+            "post": {
+                "tags": [
+                    "Customer Reviews"
+                ],
+                "summary": "Đánh giá dịch vụ từ lịch hẹn đã hoàn thành",
+                "operationId": "storeCustomerServiceReview",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "appointment_id",
+                                    "rating"
+                                ],
+                                "properties": {
+                                    "appointment_id": {
+                                        "type": "integer"
+                                    },
+                                    "rating": {
+                                        "type": "integer",
+                                        "maximum": 5,
+                                        "minimum": 1
+                                    },
+                                    "title": {
+                                        "type": "string",
+                                        "nullable": true
+                                    },
+                                    "comment": {
+                                        "type": "string",
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Đánh giá dịch vụ thành công"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không có quyền"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy lịch hẹn"
+                    },
+                    "422": {
+                        "description": "Lịch hẹn chưa đủ điều kiện hoặc dữ liệu không hợp lệ"
+                    }
+                }
+            }
+        },
+        "/api/v1/customer/service-reviews/{review}": {
+            "patch": {
+                "tags": [
+                    "Customer Reviews"
+                ],
+                "summary": "Cập nhật đánh giá dịch vụ của khách hàng",
+                "operationId": "updateCustomerServiceReview",
+                "parameters": [
+                    {
+                        "name": "review",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "properties": {
+                                    "rating": {
+                                        "type": "integer",
+                                        "maximum": 5,
+                                        "minimum": 1
+                                    },
+                                    "title": {
+                                        "type": "string",
+                                        "nullable": true
+                                    },
+                                    "comment": {
+                                        "type": "string",
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Cập nhật đánh giá dịch vụ thành công"
+                    },
+                    "401": {
+                        "description": "Chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không có quyền"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy đánh giá"
+                    },
+                    "422": {
+                        "description": "Đánh giá không thuộc dịch vụ hoặc dữ liệu không hợp lệ"
+                    }
+                }
+            }
+        },
         "/api/v1/customer/shipping/quote": {
             "post": {
                 "tags": [
@@ -3255,6 +3663,69 @@
                 }
             }
         },
+        "/api/v1/services/{service}/reviews": {
+            "get": {
+                "tags": [
+                    "Clinics"
+                ],
+                "summary": "Danh sách đánh giá đã hiển thị của dịch vụ",
+                "operationId": "listPublicServiceReviews",
+                "parameters": [
+                    {
+                        "name": "service",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "rating",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 5,
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "name": "verified_service",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 50,
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Lấy đánh giá dịch vụ thành công"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy dịch vụ"
+                    },
+                    "422": {
+                        "description": "Bộ lọc không hợp lệ"
+                    }
+                }
+            }
+        },
         "/api/v1/technician/appointments": {
             "get": {
                 "tags": [
@@ -3439,6 +3910,10 @@
         {
             "name": "Customer Orders",
             "description": "Customer Orders"
+        },
+        {
+            "name": "Customer Reviews",
+            "description": "Customer Reviews"
         },
         {
             "name": "Customer Shipping",

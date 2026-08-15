@@ -18,8 +18,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'mizuki_response_content',
     'user_id',
     'product_id',
+    'service_id',
     'product_variant_id',
     'order_item_id',
+    'appointment_id',
     'moderated_by_user_id',
     'rating',
     'title',
@@ -62,6 +64,14 @@ class Review extends Model
     }
 
     /**
+     * @return BelongsTo<Service, $this>
+     */
+    public function service(): BelongsTo
+    {
+        return $this->belongsTo(Service::class);
+    }
+
+    /**
      * @return BelongsTo<ProductVariant, $this>
      */
     public function productVariant(): BelongsTo
@@ -75,6 +85,14 @@ class Review extends Model
     public function orderItem(): BelongsTo
     {
         return $this->belongsTo(OrderItem::class);
+    }
+
+    /**
+     * @return BelongsTo<Appointment, $this>
+     */
+    public function appointment(): BelongsTo
+    {
+        return $this->belongsTo(Appointment::class);
     }
 
     /**

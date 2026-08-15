@@ -4,6 +4,7 @@ use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Branch;
 use App\Models\Payment;
+use App\Models\Review;
 use App\Models\Service;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -32,7 +33,8 @@ test('it belongs to booking entities and has payment records', function (): void
         ->and($appointment->branch()->getRelated())->toBeInstanceOf(Branch::class)
         ->and($appointment->service()->getRelated())->toBeInstanceOf(Service::class)
         ->and($appointment->technician()->getRelated())->toBeInstanceOf(User::class)
-        ->and($appointment->payments()->getRelated())->toBeInstanceOf(Payment::class);
+        ->and($appointment->payments()->getRelated())->toBeInstanceOf(Payment::class)
+        ->and($appointment->review()->getRelated())->toBeInstanceOf(Review::class);
 });
 
 test('walk-in schema makes user nullable and adds customer snapshots', function (): void {

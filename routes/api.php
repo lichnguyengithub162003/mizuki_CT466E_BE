@@ -21,11 +21,13 @@ use App\Http\Controllers\Api\V1\Customer\OrderController;
 use App\Http\Controllers\Api\V1\Customer\OrderPaymentController;
 use App\Http\Controllers\Api\V1\Customer\ProfileController;
 use App\Http\Controllers\Api\V1\Customer\ReviewController;
+use App\Http\Controllers\Api\V1\Customer\ServiceReviewController as CustomerServiceReviewController;
 use App\Http\Controllers\Api\V1\Customer\ShippingController;
 use App\Http\Controllers\Api\V1\Customer\SkinProfileController as CustomerSkinProfileController;
 use App\Http\Controllers\Api\V1\Customer\WalletController;
 use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\Payment\VnPayController;
+use App\Http\Controllers\Api\V1\ServiceReviewController;
 use App\Http\Controllers\Api\V1\Technician\AppointmentController as TechnicianAppointmentController;
 use App\Http\Controllers\Api\V1\Technician\SkinProfileController as TechnicianSkinProfileController;
 use Illuminate\Support\Facades\Route;
@@ -84,6 +86,10 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
             Route::delete('brands/{brand}/follow', [CustomerBrandController::class, 'unfollow'])->name('brands.unfollow');
             Route::post('reviews', [ReviewController::class, 'store'])->name('reviews.store');
             Route::patch('reviews/{review}', [ReviewController::class, 'update'])->name('reviews.update');
+            Route::post('service-reviews', [CustomerServiceReviewController::class, 'store'])
+                ->name('service-reviews.store');
+            Route::patch('service-reviews/{review}', [CustomerServiceReviewController::class, 'update'])
+                ->name('service-reviews.update');
         });
 
         // Appointments
@@ -263,6 +269,9 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
         Route::get('{branchId}/services', [ClinicController::class, 'services'])->name('services.index');
         Route::get('{branchId}/services/{serviceId}/slots', [ClinicController::class, 'slots'])->name('services.slots');
     });
+
+    Route::get('services/{service}/reviews', [ServiceReviewController::class, 'index'])
+        ->name('services.reviews');
 
     // Public catalog routes
     Route::get('categories', [CategoryController::class, 'index'])->name('categories.index');
