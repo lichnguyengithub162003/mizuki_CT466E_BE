@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\V1\Customer\FavoriteController;
 use App\Http\Controllers\Api\V1\Customer\OrderController;
 use App\Http\Controllers\Api\V1\Customer\OrderPaymentController;
 use App\Http\Controllers\Api\V1\Customer\ProfileController;
+use App\Http\Controllers\Api\V1\Customer\ReviewController;
 use App\Http\Controllers\Api\V1\Customer\ShippingController;
 use App\Http\Controllers\Api\V1\Customer\SkinProfileController as CustomerSkinProfileController;
 use App\Http\Controllers\Api\V1\Customer\WalletController;
@@ -81,6 +82,8 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
             Route::put('skin-profile', [CustomerSkinProfileController::class, 'update'])->name('skin-profile.update');
             Route::post('brands/{brand}/follow', [CustomerBrandController::class, 'follow'])->name('brands.follow');
             Route::delete('brands/{brand}/follow', [CustomerBrandController::class, 'unfollow'])->name('brands.unfollow');
+            Route::post('reviews', [ReviewController::class, 'store'])->name('reviews.store');
+            Route::patch('reviews/{review}', [ReviewController::class, 'update'])->name('reviews.update');
         });
 
         // Appointments

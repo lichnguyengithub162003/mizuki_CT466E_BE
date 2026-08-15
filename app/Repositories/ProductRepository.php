@@ -330,8 +330,18 @@ class ProductRepository extends BaseRepository
             ->whereHas(
                 'order',
                 fn (Builder $order): Builder => $order
-                    ->where('orders.status', OrderStatus::Delivered->value)
-                    ->whereColumn('orders.user_id', 'reviews.user_id'),
+                    ->whereColumn('orders.user_id', 'reviews.user_id')
+                    ->where(function (Builder $eligible): void {
+                        $eligible
+                            ->where(function (Builder $online): void {
+                                $online->where('orders.channel', '!=', 'counter')
+                                    ->where('orders.status', OrderStatus::Delivered->value);
+                            })
+                            ->orWhere(function (Builder $counter): void {
+                                $counter->where('orders.channel', 'counter')
+                                    ->where('orders.status', OrderStatus::Confirmed->value);
+                            });
+                    }),
             )
             ->whereHas(
                 'productVariant',
