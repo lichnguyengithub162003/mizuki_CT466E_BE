@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Catalog;
 
 use App\Models\ProductVariant;
+use App\Services\Catalog\ProductAvailabilityResolver;
 use App\Services\Import\ProductImageImportService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -19,11 +20,7 @@ class ProductListResource extends JsonResource
             ->first();
         $price = $defaultVariant === null ? (int) $this->minimum_price : $this->effectivePrice($defaultVariant);
         $originalPrice = $defaultVariant?->price ?? $price;
-        $availableQuantity = $this->variants->sum(
-            fn (ProductVariant $variant): int => (int) $variant->inventories->sum(
-                fn ($inventory): int => max(0, $inventory->quantity - $inventory->reserved_quantity),
-            ),
-        );
+        $availability = app(ProductAvailabilityResolver::class)->resolve($this->resource);
         $discountAmount = max(0, $originalPrice - $price);
         $realImages = $this->images->reject(
             fn ($image): bool => $image->image_url === ProductImageImportService::FALLBACK_URL,
@@ -69,10 +66,7 @@ class ProductListResource extends JsonResource
                 'sale_price' => $defaultVariant->sale_price,
                 'effective_price' => $price,
             ],
-            'availability' => [
-                'available' => $availableQuantity > 0,
-                'available_quantity' => $availableQuantity,
-            ],
+            'availability' => $availability,
         ];
     }
 

@@ -152,6 +152,7 @@ test('listing is frontend ready and supports category brand stock search sort an
         ->assertJsonPath('data.0.review_count', 1)
         ->assertJsonPath('data.0.default_variant.id', $firstVariant->id)
         ->assertJsonPath('data.0.availability.available_quantity', 8)
+        ->assertJsonPath('data.0.availability.stock_state', 'available')
         ->assertJsonStructure(['meta' => ['pagination' => ['current_page', 'per_page', 'total', 'last_page']]]);
 
     $this->getJson('/api/v1/products?keyword=BRIDGE-SKU-002')

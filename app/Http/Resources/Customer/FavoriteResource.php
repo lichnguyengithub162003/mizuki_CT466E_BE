@@ -18,6 +18,15 @@ class FavoriteResource extends JsonResource
             'slug' => $this->product->slug,
             'primary_image_url' => $this->product->images->first()?->image_url,
             'minimum_price' => (int) $this->product->minimum_price,
+            'brand' => $this->product->brand === null ? null : [
+                'id' => $this->product->brand->id,
+                'name' => $this->product->brand->name,
+                'slug' => $this->product->brand->slug,
+            ],
+            'original_price' => $this->product->original_price === null
+                ? null
+                : (int) $this->product->original_price,
+            'stock_state' => $this->product->stock_state,
         ];
     }
 }

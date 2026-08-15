@@ -28,6 +28,15 @@ class StoreFavoriteRequest extends FormRequest
                         ->whereNull('deleted_at'),
                 ),
             ],
+            'branch_id' => [
+                'sometimes',
+                'integer',
+                Rule::exists('branches', 'id')->where(
+                    fn (Builder $query): Builder => $query
+                        ->where('is_active', true)
+                        ->whereNull('deleted_at'),
+                ),
+            ],
         ];
     }
 

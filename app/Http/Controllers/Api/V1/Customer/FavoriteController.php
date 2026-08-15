@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1\Customer;
 
 use App\Http\Controllers\Api\V1\BaseController;
+use App\Http\Requests\Customer\FavoriteIndexRequest;
 use App\Http\Requests\Customer\StoreFavoriteRequest;
 use App\Http\Resources\Customer\FavoriteResource;
 use App\Services\FavoriteService;
@@ -14,8 +15,7 @@ class FavoriteController extends BaseController
 {
     public function __construct(
         private readonly FavoriteService $favorites,
-    ) {
-    }
+    ) {}
 
     /**
      * @OA\Get(
@@ -23,13 +23,19 @@ class FavoriteController extends BaseController
      *     operationId="listCustomerFavorites",
      *     tags={"Customer Favorites"},
      *     summary="Danh sách sản phẩm yêu thích của khách hàng",
+     *
+     *     @OA\Parameter(name="branch_id", in="query", @OA\Schema(type="integer")),
+     *
      *     @OA\Response(response=200, description="Danh sách yêu thích có phân trang"),
      *     @OA\Response(response=401, description="Chưa đăng nhập")
      * )
      */
-    public function index(Request $request): JsonResponse
+    public function index(FavoriteIndexRequest $request): JsonResponse
     {
-        $paginator = $this->favorites->getForUser($request->user());
+        $paginator = $this->favorites->getForUser(
+            $request->user(),
+            $request->validated('branch_id'),
+        );
 
         return $this->paginatedResponse(
             request: $request,
@@ -45,13 +51,18 @@ class FavoriteController extends BaseController
      *     operationId="storeCustomerFavorite",
      *     tags={"Customer Favorites"},
      *     summary="Thêm sản phẩm vào yêu thích",
+     *
      *     @OA\RequestBody(
      *         required=true,
+     *
      *         @OA\JsonContent(
      *             required={"product_id"},
-     *             @OA\Property(property="product_id", type="integer", example=1)
+     *
+     *             @OA\Property(property="product_id", type="integer", example=1),
+     *             @OA\Property(property="branch_id", type="integer", example=2)
      *         )
      *     ),
+     *
      *     @OA\Response(response=201, description="Đã thêm sản phẩm vào yêu thích"),
      *     @OA\Response(response=401, description="Chưa đăng nhập"),
      *     @OA\Response(response=409, description="Sản phẩm đã có trong yêu thích"),
@@ -63,6 +74,7 @@ class FavoriteController extends BaseController
         $favorite = $this->favorites->addForUser(
             user: $request->user(),
             productId: (int) $request->validated('product_id'),
+            branchId: $request->validated('branch_id'),
         );
 
         if ($favorite === null) {
@@ -86,12 +98,15 @@ class FavoriteController extends BaseController
      *     operationId="deleteCustomerFavorite",
      *     tags={"Customer Favorites"},
      *     summary="Bỏ sản phẩm khỏi yêu thích",
+     *
      *     @OA\Parameter(
      *         name="product_id",
      *         in="path",
      *         required=true,
+     *
      *         @OA\Schema(type="integer")
      *     ),
+     *
      *     @OA\Response(response=200, description="Đã bỏ sản phẩm khỏi yêu thích"),
      *     @OA\Response(response=401, description="Chưa đăng nhập"),
      *     @OA\Response(response=404, description="Sản phẩm chưa có trong yêu thích")
