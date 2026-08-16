@@ -411,6 +411,63 @@ test('checkout revalidates stock and rolls back every write when stock is insuff
     expect($context['inventory']->refresh()->reserved_quantity)->toBe(1);
 });
 
+test('checkout rejects a cart item when its variant became inactive', function (): void {
+    $context = createOrderCheckoutContext();
+    $context['variant']->update(['is_active' => false]);
+    $this->actingAs($context['user']);
+
+    $this->postJson('/api/v1/customer/orders', [
+        'delivery_method' => 'pickup',
+        'payment_method' => 'cash',
+    ])->assertUnprocessable()->assertJsonPath(
+        'data.errors.cart.0',
+        "Biến thể {$context['variant']->name} của sản phẩm {$context['variant']->product->name} đã ngừng bán",
+    );
+
+    $this->assertDatabaseCount('orders', 0);
+    $this->assertDatabaseCount('payments', 0);
+    $this->assertDatabaseCount('cart_items', 1);
+    expect($context['inventory']->refresh()->reserved_quantity)->toBe(1);
+});
+
+test('checkout rejects a cart item when its parent product became inactive', function (): void {
+    $context = createOrderCheckoutContext();
+    $context['variant']->product->update(['is_active' => false]);
+    $this->actingAs($context['user']);
+
+    $this->postJson('/api/v1/customer/orders', [
+        'delivery_method' => 'pickup',
+        'payment_method' => 'cash',
+    ])->assertUnprocessable()->assertJsonPath(
+        'data.errors.cart.0',
+        "Sản phẩm {$context['variant']->product->name} đã ngừng bán",
+    );
+
+    $this->assertDatabaseCount('orders', 0);
+    $this->assertDatabaseCount('payments', 0);
+    $this->assertDatabaseCount('cart_items', 1);
+    expect($context['inventory']->refresh()->reserved_quantity)->toBe(1);
+});
+
+test('pickup checkout rejects the selected branch when it became inactive', function (): void {
+    $context = createOrderCheckoutContext();
+    $context['branch']->update(['is_active' => false]);
+    $this->actingAs($context['user']);
+
+    $this->postJson('/api/v1/customer/orders', [
+        'delivery_method' => 'pickup',
+        'payment_method' => 'cash',
+    ])->assertUnprocessable()->assertJsonPath(
+        'data.errors.branch_id.0',
+        'Chi nhánh đã chọn hiện không hoạt động',
+    );
+
+    $this->assertDatabaseCount('orders', 0);
+    $this->assertDatabaseCount('payments', 0);
+    $this->assertDatabaseCount('cart_items', 1);
+    expect($context['inventory']->refresh()->reserved_quantity)->toBe(1);
+});
+
 test('checkout rejects a promotion after the customer reaches its per user limit', function (): void {
     $context = createOrderCheckoutContext();
     $promotion = Promotion::query()->create([

@@ -70,6 +70,13 @@ class OrderService extends BaseService
                 $this->checkoutError('branch_id', 'Vui lòng chọn chi nhánh trước khi đặt hàng');
             }
 
+            if (
+                $data['delivery_method'] === 'pickup'
+                && ($cart->branch === null || ! $cart->branch->is_active)
+            ) {
+                $this->checkoutError('branch_id', 'Chi nhánh đã chọn hiện không hoạt động');
+            }
+
             $address = $this->resolveAddress($user, $data, lock: true);
             $shippingFee = 0;
 
@@ -90,6 +97,20 @@ class OrderService extends BaseService
             $inventoryReservations = [];
 
             foreach ($cart->items as $item) {
+                if (! $item->productVariant->is_active) {
+                    $this->checkoutError(
+                        'cart',
+                        "Biến thể {$item->productVariant->name} của sản phẩm {$item->productVariant->product->name} đã ngừng bán",
+                    );
+                }
+
+                if (! $item->productVariant->product->is_active) {
+                    $this->checkoutError(
+                        'cart',
+                        "Sản phẩm {$item->productVariant->product->name} đã ngừng bán",
+                    );
+                }
+
                 $inventory = $this->orders->lockInventory($cart->branch_id, $item->product_variant_id);
                 $available = $inventory === null
                     ? 0
