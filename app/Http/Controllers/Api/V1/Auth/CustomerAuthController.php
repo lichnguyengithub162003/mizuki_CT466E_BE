@@ -7,6 +7,7 @@ use App\Http\Requests\Auth\CustomerLoginRequest;
 use App\Http\Requests\Auth\CustomerRegisterRequest;
 use App\Http\Requests\Auth\ForgotPasswordRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
+use App\Http\Requests\Auth\StaffLoginRequest;
 use App\Http\Requests\Auth\VerifyPasswordRecoveryOtpRequest;
 use App\Http\Resources\Auth\AuthenticatedUserResource;
 use App\Http\Resources\Auth\PasswordRecoveryRequestResource;
@@ -25,6 +26,27 @@ class CustomerAuthController extends BaseController
         private readonly PasswordRecoveryService $passwordRecovery,
     ) {}
 
+    /**
+     * @OA\Post(
+     *     path="/api/v1/auth/register",
+     *     operationId="registerCustomer",
+     *     tags={"Authentication"},
+     *     summary="Đăng ký tài khoản khách hàng",
+     *
+     *     @OA\RequestBody(required=true, @OA\JsonContent(
+     *         required={"name", "email", "phone", "password", "password_confirmation"},
+     *
+     *         @OA\Property(property="name", type="string", example="Mizuki Customer"),
+     *         @OA\Property(property="email", type="string", format="email", example="customer@example.com"),
+     *         @OA\Property(property="phone", type="string", pattern="^0[35789][0-9]{8}$", example="0368123456"),
+     *         @OA\Property(property="password", type="string", format="password", minLength=8),
+     *         @OA\Property(property="password_confirmation", type="string", format="password", minLength=8)
+     *     )),
+     *
+     *     @OA\Response(response=201, description="Đăng ký tài khoản thành công"),
+     *     @OA\Response(response=422, description="Dữ liệu đăng ký không hợp lệ")
+     * )
+     */
     public function register(CustomerRegisterRequest $request): JsonResponse
     {
         $user = $this->auth->register($request->validated(), $request);
@@ -37,6 +59,37 @@ class CustomerAuthController extends BaseController
         );
     }
 
+    /**
+     * @OA\Post(
+     *     path="/api/v1/auth/login",
+     *     operationId="loginCustomer",
+     *     tags={"Authentication"},
+     *     summary="Đăng nhập khách hàng bằng email hoặc số điện thoại",
+     *
+     *     @OA\RequestBody(required=true, @OA\JsonContent(
+     *         oneOf={
+     *
+     *             @OA\Schema(
+     *                 required={"email", "password"},
+     *
+     *                 @OA\Property(property="email", type="string", format="email", example="customer@example.com"),
+     *                 @OA\Property(property="password", type="string", format="password")
+     *             ),
+     *
+     *             @OA\Schema(
+     *                 required={"phone", "password"},
+     *
+     *                 @OA\Property(property="phone", type="string", pattern="^0[35789][0-9]{8}$", example="0368123456"),
+     *                 @OA\Property(property="password", type="string", format="password")
+     *             )
+     *         }
+     *     )),
+     *
+     *     @OA\Response(response=200, description="Đăng nhập thành công"),
+     *     @OA\Response(response=401, description="Thông tin đăng nhập không đúng hoặc sai khu vực"),
+     *     @OA\Response(response=422, description="Dữ liệu đăng nhập không hợp lệ")
+     * )
+     */
     public function login(CustomerLoginRequest $request): JsonResponse
     {
         $user = $this->auth->login($request->validated(), $request);
@@ -48,7 +101,26 @@ class CustomerAuthController extends BaseController
         );
     }
 
-    public function staffLogin(CustomerLoginRequest $request): JsonResponse
+    /**
+     * @OA\Post(
+     *     path="/api/v1/auth/staff-login",
+     *     operationId="loginStaff",
+     *     tags={"Authentication"},
+     *     summary="Đăng nhập nhân viên bằng email",
+     *
+     *     @OA\RequestBody(required=true, @OA\JsonContent(
+     *         required={"email", "password"},
+     *
+     *         @OA\Property(property="email", type="string", format="email", example="admin@example.com"),
+     *         @OA\Property(property="password", type="string", format="password")
+     *     )),
+     *
+     *     @OA\Response(response=200, description="Đăng nhập thành công"),
+     *     @OA\Response(response=401, description="Thông tin đăng nhập không đúng hoặc sai khu vực"),
+     *     @OA\Response(response=422, description="Chỉ hỗ trợ email và mật khẩu")
+     * )
+     */
+    public function staffLogin(StaffLoginRequest $request): JsonResponse
     {
         $user = $this->auth->staffLogin($request->validated(), $request);
 

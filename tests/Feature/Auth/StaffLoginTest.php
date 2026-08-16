@@ -86,3 +86,21 @@ test('staff login validation uses the standard API envelope', function (): void 
         ->assertJsonPath('data.errors.email.0', 'Email không đúng định dạng')
         ->assertJsonPath('data.errors.password.0', 'Vui lòng nhập mật khẩu');
 });
+
+test('staff login rejects phone credentials and remains email only', function (): void {
+    User::factory()->create([
+        'email' => 'phone-staff@mizuki.test',
+        'phone' => '0368123456',
+        'password' => 'secret-password',
+        'role' => UserRole::SuperAdmin,
+    ]);
+
+    $this->postJson('/api/v1/auth/staff-login', [
+        'phone' => '0368123456',
+        'password' => 'secret-password',
+    ])->assertUnprocessable()
+        ->assertJsonPath('data.errors.email.0', 'Vui lòng nhập email')
+        ->assertJsonPath('data.errors.phone.0', 'Khu vực nhân viên chỉ hỗ trợ đăng nhập bằng email');
+
+    $this->assertGuest();
+});

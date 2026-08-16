@@ -21,6 +21,12 @@ class CustomerRegisterRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users', 'email')],
+            'phone' => [
+                'required',
+                'string',
+                'regex:/^0[35789][0-9]{8}$/',
+                Rule::unique('users', 'phone'),
+            ],
             'password' => ['required', 'string', 'confirmed', Password::min(8)],
         ];
     }
@@ -39,6 +45,10 @@ class CustomerRegisterRequest extends FormRequest
             'email.email' => 'Email không đúng định dạng',
             'email.max' => 'Email không được vượt quá 255 ký tự',
             'email.unique' => 'Email này đã được sử dụng',
+            'phone.required' => 'Vui lòng nhập số điện thoại',
+            'phone.string' => 'Số điện thoại không hợp lệ',
+            'phone.regex' => 'Số điện thoại không đúng định dạng',
+            'phone.unique' => 'Số điện thoại này đã được sử dụng',
             'password.required' => 'Vui lòng nhập mật khẩu',
             'password.string' => 'Mật khẩu không hợp lệ',
             'password.confirmed' => 'Xác nhận mật khẩu không khớp',

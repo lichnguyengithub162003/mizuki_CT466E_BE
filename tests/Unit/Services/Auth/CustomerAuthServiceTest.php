@@ -21,17 +21,19 @@ function customerAuthRequest(string $uri = '/api/v1/auth/login', string $method 
 }
 
 test('it registers a customer through the user repository', function (): void {
-    $service = new CustomerAuthService(new UserRepository(new User()));
+    $service = new CustomerAuthService(new UserRepository(new User));
 
     $user = $service->register([
         'name' => '  Mizuki Customer  ',
         'email' => '  CUSTOMER@EXAMPLE.COM  ',
+        'phone' => '0368123456',
         'password' => 'secret-password',
     ], customerAuthRequest('/api/v1/auth/register'));
 
     expect($user)->toBeInstanceOf(User::class)
         ->and($user->name)->toBe('Mizuki Customer')
         ->and($user->email)->toBe('customer@example.com')
+        ->and($user->phone)->toBe('0368123456')
         ->and($user->role)->toBe(UserRole::Customer)
         ->and($user->branch_id)->toBeNull()
         ->and(Hash::check('secret-password', $user->password))->toBeTrue();
@@ -40,7 +42,7 @@ test('it registers a customer through the user repository', function (): void {
 });
 
 test('it logs in a customer with valid credentials', function (): void {
-    $service = new CustomerAuthService(new UserRepository(new User()));
+    $service = new CustomerAuthService(new UserRepository(new User));
     $user = User::factory()->create([
         'email' => 'customer@example.com',
         'password' => 'secret-password',
@@ -57,8 +59,25 @@ test('it logs in a customer with valid credentials', function (): void {
     $this->assertAuthenticatedAs($user);
 });
 
+test('it logs in a customer with exact canonical phone credentials', function (): void {
+    $service = new CustomerAuthService(new UserRepository(new User));
+    $user = User::factory()->create([
+        'phone' => '0368123456',
+        'password' => 'secret-password',
+        'role' => UserRole::Customer,
+    ]);
+
+    $authenticatedUser = $service->login([
+        'phone' => '0368123456',
+        'password' => 'secret-password',
+    ], customerAuthRequest());
+
+    expect($authenticatedUser->is($user))->toBeTrue();
+    $this->assertAuthenticatedAs($user);
+});
+
 test('it rejects login when the email does not exist', function (): void {
-    $service = new CustomerAuthService(new UserRepository(new User()));
+    $service = new CustomerAuthService(new UserRepository(new User));
 
     $service->login([
         'email' => 'missing@example.com',
@@ -67,7 +86,7 @@ test('it rejects login when the email does not exist', function (): void {
 })->throws(AuthenticationException::class, 'Thông tin đăng nhập không đúng');
 
 test('it rejects login when the password is invalid', function (): void {
-    $service = new CustomerAuthService(new UserRepository(new User()));
+    $service = new CustomerAuthService(new UserRepository(new User));
     User::factory()->create([
         'email' => 'customer@example.com',
         'password' => 'secret-password',
@@ -81,7 +100,7 @@ test('it rejects login when the password is invalid', function (): void {
 })->throws(AuthenticationException::class, 'Thông tin đăng nhập không đúng');
 
 test('it rejects non-customer users from customer login', function (): void {
-    $service = new CustomerAuthService(new UserRepository(new User()));
+    $service = new CustomerAuthService(new UserRepository(new User));
     User::factory()->create([
         'email' => 'cashier@example.com',
         'password' => 'secret-password',
@@ -95,7 +114,7 @@ test('it rejects non-customer users from customer login', function (): void {
 })->throws(AuthenticationException::class, 'Tài khoản không có quyền đăng nhập khu vực khách hàng!');
 
 test('it logs in internal staff through the staff login flow', function (): void {
-    $service = new CustomerAuthService(new UserRepository(new User()));
+    $service = new CustomerAuthService(new UserRepository(new User));
     $user = User::factory()->create([
         'email' => 'manager@example.com',
         'password' => 'secret-password',
@@ -112,7 +131,7 @@ test('it logs in internal staff through the staff login flow', function (): void
 });
 
 test('it rejects customers from the staff login flow', function (): void {
-    $service = new CustomerAuthService(new UserRepository(new User()));
+    $service = new CustomerAuthService(new UserRepository(new User));
     User::factory()->create([
         'email' => 'customer@example.com',
         'password' => 'secret-password',
@@ -126,14 +145,14 @@ test('it rejects customers from the staff login flow', function (): void {
 })->throws(AuthenticationException::class, 'Vui lòng đăng nhập tại khu vực khách hàng!');
 
 test('it returns any current authenticated user for the shared identity endpoint', function (): void {
-    $service = new CustomerAuthService(new UserRepository(new User()));
+    $service = new CustomerAuthService(new UserRepository(new User));
     $user = User::factory()->create(['role' => UserRole::Technician]);
 
     expect($service->currentUser($user)->is($user))->toBeTrue();
 });
 
 test('it returns the current authenticated customer', function (): void {
-    $service = new CustomerAuthService(new UserRepository(new User()));
+    $service = new CustomerAuthService(new UserRepository(new User));
     $user = User::factory()->create([
         'role' => UserRole::Customer,
     ]);
@@ -142,7 +161,7 @@ test('it returns the current authenticated customer', function (): void {
 });
 
 test('it rejects non-customer users from the customer account context', function (): void {
-    $service = new CustomerAuthService(new UserRepository(new User()));
+    $service = new CustomerAuthService(new UserRepository(new User));
     $user = User::factory()->create([
         'role' => UserRole::Cashier,
     ]);
@@ -151,7 +170,7 @@ test('it rejects non-customer users from the customer account context', function
 })->throws(AuthorizationException::class, 'Tài khoản không có quyền truy cập khu vực khách hàng!');
 
 test('it logs out an authenticated customer and invalidates the session', function (): void {
-    $service = new CustomerAuthService(new UserRepository(new User()));
+    $service = new CustomerAuthService(new UserRepository(new User));
     $user = User::factory()->create([
         'role' => UserRole::Customer,
     ]);
@@ -169,7 +188,7 @@ test('it logs out an authenticated customer and invalidates the session', functi
 });
 
 test('it logs out an authenticated staff user', function (): void {
-    $service = new CustomerAuthService(new UserRepository(new User()));
+    $service = new CustomerAuthService(new UserRepository(new User));
     $user = User::factory()->create([
         'role' => UserRole::Cashier,
     ]);

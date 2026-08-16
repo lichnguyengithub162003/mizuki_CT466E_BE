@@ -55,6 +55,7 @@ test('registration succeeds before the throttle limit is reached', function (): 
     $response = $this->postJson('/api/v1/auth/register', [
         'name' => 'Mizuki Customer',
         'email' => 'normal-register@example.com',
+        'phone' => '0368123456',
         'password' => 'secret-password',
         'password_confirmation' => 'secret-password',
     ])
@@ -68,6 +69,7 @@ test('registration throttling rejects excessive attempts', function (): void {
         $this->postJson('/api/v1/auth/register', [
             'name' => "Mizuki Customer {$attempt}",
             'email' => "registration-abuse-{$attempt}@example.com",
+            'phone' => '036812345'.$attempt,
             'password' => 'secret-password',
             'password_confirmation' => 'secret-password',
         ])->assertCreated();
@@ -76,6 +78,7 @@ test('registration throttling rejects excessive attempts', function (): void {
     $response = $this->postJson('/api/v1/auth/register', [
         'name' => 'Mizuki Customer 4',
         'email' => 'registration-abuse-4@example.com',
+        'phone' => '0368123454',
         'password' => 'secret-password',
         'password_confirmation' => 'secret-password',
     ])

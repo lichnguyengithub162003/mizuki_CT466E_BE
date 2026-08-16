@@ -946,6 +946,178 @@
                 }
             }
         },
+        "/api/v1/auth/register": {
+            "post": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Đăng ký tài khoản khách hàng",
+                "operationId": "registerCustomer",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "name",
+                                    "email",
+                                    "phone",
+                                    "password",
+                                    "password_confirmation"
+                                ],
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "example": "Mizuki Customer"
+                                    },
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "customer@example.com"
+                                    },
+                                    "phone": {
+                                        "type": "string",
+                                        "pattern": "^0[35789][0-9]{8}$",
+                                        "example": "0368123456"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "minLength": 8
+                                    },
+                                    "password_confirmation": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "minLength": 8
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Đăng ký tài khoản thành công"
+                    },
+                    "422": {
+                        "description": "Dữ liệu đăng ký không hợp lệ"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/login": {
+            "post": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Đăng nhập khách hàng bằng email hoặc số điện thoại",
+                "operationId": "loginCustomer",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "required": [
+                                            "email",
+                                            "password"
+                                        ],
+                                        "properties": {
+                                            "email": {
+                                                "type": "string",
+                                                "format": "email",
+                                                "example": "customer@example.com"
+                                            },
+                                            "password": {
+                                                "type": "string",
+                                                "format": "password"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "required": [
+                                            "phone",
+                                            "password"
+                                        ],
+                                        "properties": {
+                                            "phone": {
+                                                "type": "string",
+                                                "pattern": "^0[35789][0-9]{8}$",
+                                                "example": "0368123456"
+                                            },
+                                            "password": {
+                                                "type": "string",
+                                                "format": "password"
+                                            }
+                                        },
+                                        "type": "object"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Đăng nhập thành công"
+                    },
+                    "401": {
+                        "description": "Thông tin đăng nhập không đúng hoặc sai khu vực"
+                    },
+                    "422": {
+                        "description": "Dữ liệu đăng nhập không hợp lệ"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/staff-login": {
+            "post": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Đăng nhập nhân viên bằng email",
+                "operationId": "loginStaff",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "password"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "admin@example.com"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Đăng nhập thành công"
+                    },
+                    "401": {
+                        "description": "Thông tin đăng nhập không đúng hoặc sai khu vực"
+                    },
+                    "422": {
+                        "description": "Chỉ hỗ trợ email và mật khẩu"
+                    }
+                }
+            }
+        },
         "/api/v1/auth/forgot-password": {
             "post": {
                 "tags": [
@@ -2821,6 +2993,15 @@
                 ],
                 "summary": "Danh sách sản phẩm yêu thích của khách hàng",
                 "operationId": "listCustomerFavorites",
+                "parameters": [
+                    {
+                        "name": "branch_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "Danh sách yêu thích có phân trang"
@@ -2848,6 +3029,10 @@
                                     "product_id": {
                                         "type": "integer",
                                         "example": 1
+                                    },
+                                    "branch_id": {
+                                        "type": "integer",
+                                        "example": 2
                                     }
                                 },
                                 "type": "object"

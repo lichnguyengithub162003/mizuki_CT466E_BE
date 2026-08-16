@@ -18,7 +18,7 @@ class UserRepository extends BaseRepository
     }
 
     /**
-     * @param  array{name: string, email: string, password: string}  $attributes
+     * @param  array{name: string, email: string, phone: string, password: string}  $attributes
      */
     public function createCustomer(array $attributes): User
     {
@@ -26,6 +26,7 @@ class UserRepository extends BaseRepository
         $user = $this->create([
             'name' => $attributes['name'],
             'email' => $attributes['email'],
+            'phone' => $attributes['phone'],
             'password' => $attributes['password'],
             'role' => UserRole::Customer,
             'branch_id' => null,
@@ -39,6 +40,16 @@ class UserRepository extends BaseRepository
         /** @var User|null $user */
         $user = $this->query()
             ->where('email', $email)
+            ->first();
+
+        return $user;
+    }
+
+    public function findByPhone(string $phone): ?User
+    {
+        /** @var User|null $user */
+        $user = $this->query()
+            ->where('phone', $phone)
             ->first();
 
         return $user;

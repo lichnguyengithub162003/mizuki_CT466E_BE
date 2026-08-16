@@ -18,12 +18,13 @@ class CustomerAuthService extends BaseService
         private readonly UserRepository $users,
     ) {}
 
-    /** @param array{name: string, email: string, password: string} $data */
+    /** @param array{name: string, email: string, phone: string, password: string} $data */
     public function register(array $data, Request $request): User
     {
         $user = $this->users->createCustomer([
             'name' => trim($data['name']),
             'email' => strtolower(trim($data['email'])),
+            'phone' => $data['phone'],
             'password' => $data['password'],
         ]);
 
@@ -33,13 +34,13 @@ class CustomerAuthService extends BaseService
     }
 
     /**
-     * @param  array{email: string, password: string}  $data
+     * @param  array{email?: string|null, phone?: string|null, password: string}  $data
      *
      * @throws AuthenticationException
      */
     public function login(array $data, Request $request): User
     {
-        $user = $this->userFromCredentials($data);
+        $user = $this->userFromCustomerCredentials($data);
 
         if ($user->role !== UserRole::Customer) {
             throw new AuthenticationException('Tài khoản không có quyền đăng nhập khu vực khách hàng!');
@@ -57,7 +58,7 @@ class CustomerAuthService extends BaseService
      */
     public function staffLogin(array $data, Request $request): User
     {
-        $user = $this->userFromCredentials($data);
+        $user = $this->userFromEmailCredentials($data);
 
         if ($user->role === UserRole::Customer) {
             throw new AuthenticationException('Vui lòng đăng nhập tại khu vực khách hàng!');
@@ -109,11 +110,31 @@ class CustomerAuthService extends BaseService
      *
      * @throws AuthenticationException
      */
-    private function userFromCredentials(array $data): User
+    private function userFromCustomerCredentials(array $data): User
+    {
+        $user = isset($data['email'])
+            ? $this->users->findByEmail(strtolower(trim($data['email'])))
+            : $this->users->findByPhone((string) ($data['phone'] ?? ''));
+
+        return $this->verifiedCredentials($user, $data['password']);
+    }
+
+    /**
+     * @param  array{email: string, password: string}  $data
+     *
+     * @throws AuthenticationException
+     */
+    private function userFromEmailCredentials(array $data): User
     {
         $user = $this->users->findByEmail(strtolower(trim($data['email'])));
 
-        if (! $user || ! Hash::check($data['password'], $user->password)) {
+        return $this->verifiedCredentials($user, $data['password']);
+    }
+
+    /** @throws AuthenticationException */
+    private function verifiedCredentials(?User $user, string $password): User
+    {
+        if (! $user || ! Hash::check($password, $user->password)) {
             throw new AuthenticationException('Thông tin đăng nhập không đúng!');
         }
 
