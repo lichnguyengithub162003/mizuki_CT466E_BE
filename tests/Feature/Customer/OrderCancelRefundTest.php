@@ -4,13 +4,14 @@ use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
 use App\Enums\UserRole;
 use App\Events\OrderStatusUpdated;
-use App\Models\Brand;
 use App\Models\Branch;
 use App\Models\BranchInventory;
+use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\Refund;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -144,6 +145,69 @@ test('customer can request a refund with multiple valid evidence files', functio
         'requested_amount' => 300_000,
     ]);
     expect($context['order']->refresh()->status)->toBe(OrderStatus::Delivered);
+
+    $this->getJson("/api/v1/customer/orders/{$context['order']->id}")
+        ->assertOk()
+        ->assertJsonPath('data.refund.id', $response->json('data.id'))
+        ->assertJsonPath('data.refund.status', 'requested')
+        ->assertJsonPath('data.refund.status_label', 'Chờ duyệt')
+        ->assertJsonPath('data.refund.requested_amount', 300_000);
+});
+
+test('customer refund status labels remain readable after review and payout', function (): void {
+    $context = createOrderCancelRefundContext(OrderStatus::Delivered);
+    $refund = Refund::query()->create([
+        'refund_number' => 'RF-'.Str::upper(Str::random(12)),
+        'order_id' => $context['order']->id,
+        'user_id' => $context['user']->id,
+        'status' => 'refunded',
+        'requested_amount' => 300_000,
+        'approved_amount' => 250_000,
+        'reason_type' => 'product_damaged',
+        'reason' => 'Sản phẩm bị hư hỏng',
+        'evidence_paths' => ['refund-evidence/proof.jpg'],
+        'review_note' => 'Duyệt một phần',
+        'reviewed_at' => now(),
+        'refunded_at' => now(),
+    ]);
+    $this->actingAs($context['user']);
+
+    $this->getJson("/api/v1/customer/orders/{$context['order']->id}")
+        ->assertOk()
+        ->assertJsonPath('data.refund.id', $refund->id)
+        ->assertJsonPath('data.refund.status', 'refunded')
+        ->assertJsonPath('data.refund.status_label', 'Đã hoàn tiền')
+        ->assertJsonPath('data.refund.approved_amount', 250_000)
+        ->assertJsonPath('data.refund.review_note', 'Duyệt một phần');
+});
+
+test('customer cannot request a second refund for the same order', function (): void {
+    Storage::fake('public');
+    $context = createOrderCancelRefundContext(OrderStatus::Delivered);
+    Refund::query()->create([
+        'refund_number' => 'RF-'.Str::upper(Str::random(12)),
+        'order_id' => $context['order']->id,
+        'user_id' => $context['user']->id,
+        'status' => 'requested',
+        'requested_amount' => 300_000,
+        'reason_type' => 'product_quality',
+        'reason' => 'Chất lượng không phù hợp',
+        'evidence_paths' => ['refund-evidence/original.jpg'],
+    ]);
+    $this->actingAs($context['user']);
+
+    $this->post(
+        "/api/v1/customer/orders/{$context['order']->id}/refund",
+        [
+            'reason_type' => 'product_damaged',
+            'evidence' => [UploadedFile::fake()->create('duplicate.jpg', 100, 'image/jpeg')],
+        ],
+        ['Accept' => 'application/json'],
+    )->assertUnprocessable()
+        ->assertJsonPath('data.errors.refund.0', 'Đơn hàng đã có yêu cầu hoàn tiền');
+
+    $this->assertDatabaseCount('refunds', 1);
+    expect(Storage::disk('public')->allFiles())->toBe([]);
 });
 
 test('refund request requires at least one evidence file', function (): void {

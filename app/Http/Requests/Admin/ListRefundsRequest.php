@@ -16,7 +16,7 @@ class ListRefundsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'status' => ['sometimes', Rule::in(['requested', 'approved', 'rejected'])],
+            'status' => ['sometimes', Rule::in(['requested', 'approved', 'rejected', 'refunded'])],
             'branch_id' => ['sometimes', 'integer', 'min:1'],
             'keyword' => ['sometimes', 'nullable', 'string', 'max:255'],
             'page' => ['sometimes', 'integer', 'min:1'],

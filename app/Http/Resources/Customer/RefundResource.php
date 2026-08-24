@@ -20,7 +20,7 @@ class RefundResource extends JsonResource
             'order_id' => $this->order_id,
             'order_number' => $this->order?->order_number,
             'status' => $this->status,
-            'status_label' => $this->status === 'requested' ? 'Chờ duyệt' : $this->status,
+            'status_label' => $this->statusLabel((string) $this->status),
             'requested_amount' => $this->requested_amount,
             'approved_amount' => $this->approved_amount,
             'reason_type' => $this->reason_type,
@@ -35,5 +35,16 @@ class RefundResource extends JsonResource
             'refunded_at' => $this->refunded_at?->toISOString(),
             'created_at' => $this->created_at?->toISOString(),
         ];
+    }
+
+    private function statusLabel(string $status): string
+    {
+        return match ($status) {
+            'requested' => 'Chờ duyệt',
+            'approved' => 'Đã duyệt',
+            'rejected' => 'Đã từ chối',
+            'refunded' => 'Đã hoàn tiền',
+            default => $status,
+        };
     }
 }

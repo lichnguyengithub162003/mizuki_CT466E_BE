@@ -15,6 +15,7 @@ use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use App\Repositories\WalletTransactionRepository;
 use App\Services\PaymentService;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
@@ -124,7 +125,9 @@ test('super admin pays an approved refund into a lazily created wallet idempoten
         ->assertJsonPath('data.wallet_transaction.direction', 'credit')
         ->assertJsonPath('data.wallet_transaction.amount', 275_000)
         ->assertJsonPath('data.wallet_transaction.balance_after', 275_000)
-        ->assertJsonPath('data.wallet_transaction.reference', $refund->refund_number);
+        ->assertJsonPath('data.wallet_transaction.reference', $refund->refund_number)
+        ->assertJsonPath('data.status_label', 'Đã hoàn tiền')
+        ->assertJsonPath('data.allowed_actions', []);
 
     $wallet = Wallet::query()->where('user_id', $customer->id)->firstOrFail();
     $refund->refresh();
@@ -326,8 +329,10 @@ test('refund list supports status and keyword filters within admin scope', funct
     ]);
     $requestedOrder = createAdminManagedOrder($branch, $customer, OrderStatus::Delivered);
     $approvedOrder = createAdminManagedOrder($branch, $customer, OrderStatus::Delivered);
+    $refundedOrder = createAdminManagedOrder($branch, $customer, OrderStatus::Delivered);
     $requested = createAdminManagedRefund($requestedOrder, $customer);
     createAdminManagedRefund($approvedOrder, $customer, 'approved');
+    $refunded = createAdminManagedRefund($refundedOrder, $customer, 'refunded');
     $otherBranch = createOrderAdminBranch('RFB');
     $otherOrder = createAdminManagedOrder($otherBranch, $customer, OrderStatus::Delivered);
     createAdminManagedRefund($otherOrder, $customer);
@@ -335,13 +340,28 @@ test('refund list supports status and keyword filters within admin scope', funct
 
     $this->getJson('/api/v1/admin/refunds')
         ->assertOk()
-        ->assertJsonCount(3, 'data');
+        ->assertJsonCount(4, 'data');
 
     $this->getJson('/api/v1/admin/refunds?status=requested&keyword=refund.search')
         ->assertOk()
         ->assertJsonCount(2, 'data')
         ->assertJsonPath('meta.pagination.total', 2)
         ->assertJsonFragment(['id' => $requested->id]);
+
+    $this->getJson('/api/v1/admin/refunds?status=refunded')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $refunded->id)
+        ->assertJsonPath('data.0.status_label', 'Đã hoàn tiền')
+        ->assertJsonPath('data.0.allowed_actions', []);
+});
+
+test('admin refund filters reject unsupported contract values', function (): void {
+    $this->actingAs(User::factory()->create(['role' => UserRole::SuperAdmin]));
+
+    $this->getJson('/api/v1/admin/refunds?status=unknown')->assertUnprocessable();
+    $this->getJson('/api/v1/admin/refunds?branch_id=0')->assertUnprocessable();
+    $this->getJson('/api/v1/admin/refunds?per_page=101')->assertUnprocessable();
 });
 
 test('admin confirms only pending orders and dispatches status event after commit', function (): void {
@@ -503,6 +523,8 @@ test('admin approves requested refund with default amount and stores reviewer me
     ])
         ->assertOk()
         ->assertJsonPath('data.status', 'approved')
+        ->assertJsonPath('data.status_label', 'Đã duyệt')
+        ->assertJsonPath('data.allowed_actions', ['wallet_payout'])
         ->assertJsonPath('data.approved_amount', 300_000)
         ->assertJsonPath('data.reviewer.id', $admin->id);
 
@@ -534,6 +556,8 @@ test('admin rejects requested refund and cannot process it again', function (): 
     ])
         ->assertOk()
         ->assertJsonPath('data.status', 'rejected')
+        ->assertJsonPath('data.status_label', 'Đã từ chối')
+        ->assertJsonPath('data.allowed_actions', [])
         ->assertJsonPath('data.review_note', 'Bằng chứng không hợp lệ')
         ->assertJsonPath('data.reviewer.id', $manager->id);
 
@@ -562,4 +586,14 @@ test('approved amount cannot exceed requested amount', function (): void {
 
     expect($refund->refresh()->status)->toBe('requested')
         ->and($refund->reviewed_by_user_id)->toBeNull();
+});
+
+test('database prevents multiple refund requests for the same order', function (): void {
+    $branch = createOrderAdminBranch('RU');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    $order = createAdminManagedOrder($branch, $customer, OrderStatus::Delivered);
+    createAdminManagedRefund($order, $customer);
+
+    expect(fn (): Refund => createAdminManagedRefund($order, $customer))
+        ->toThrow(QueryException::class);
 });
