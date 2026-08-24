@@ -16,6 +16,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Promotion;
 use App\Models\PromotionUsage;
+use App\Models\Shipment;
 use App\Models\User;
 use App\Models\UserAddress;
 use App\Models\Wallet;
@@ -558,4 +559,62 @@ test('payment failure rolls back customer order and checkout writes', function (
     $this->assertDatabaseCount('payments', 0);
     $this->assertDatabaseCount('cart_items', 1);
     expect($context['inventory']->refresh()->reserved_quantity)->toBe(1);
+});
+test('customer order list excludes other customers orders and validates filters', function (): void {
+    $context = createOrderCheckoutContext(false);
+    $ownOrder = createExistingCustomerOrder($context['user'], $context['branch']);
+    $otherUser = User::factory()->create(['role' => UserRole::Customer]);
+    $otherOrder = createExistingCustomerOrder($otherUser, $context['branch']);
+    $this->actingAs($context['user']);
+
+    $this->getJson('/api/v1/customer/orders')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $ownOrder->id)
+        ->assertJsonMissing(['id' => $otherOrder->id]);
+
+    $this->getJson('/api/v1/customer/orders?status=unknown')
+        ->assertUnprocessable();
+
+    $this->getJson('/api/v1/customer/orders?per_page=101')
+        ->assertUnprocessable();
+});
+
+test('customer order detail preserves delivery snapshot and exposes shipment tracking', function (): void {
+    $context = createOrderCheckoutContext(false);
+
+    $order = createExistingCustomerOrder($context['user'], $context['branch'], [
+        'fulfillment_method' => 'shipping',
+        'user_address_id' => null,
+        'recipient_name' => 'Mizuki Customer',
+        'recipient_phone' => '0900000000',
+        'province_code' => 'CT',
+        'ghn_district_id' => 1442,
+        'ghn_ward_code' => '21012',
+        'shipping_address' => '123 Test Street, Can Tho',
+        'shipping_fee' => 30_000,
+        'total_amount' => 130_000,
+    ]);
+
+    Shipment::query()->create([
+        'order_id' => $order->id,
+        'provider' => 'ghn',
+        'ghn_order_code' => 'GHNTEST123',
+        'status' => 'in_transit',
+        'shipping_fee' => 30_000,
+        'expected_delivery_at' => now()->addDay(),
+        'shipped_at' => now(),
+    ]);
+
+    $this->actingAs($context['user']);
+
+    $this->getJson("/api/v1/customer/orders/{$order->id}")
+        ->assertOk()
+        ->assertJsonPath('data.delivery_method', 'delivery')
+        ->assertJsonPath('data.delivery_address.address_id', null)
+        ->assertJsonPath('data.delivery_address.recipient_name', 'Mizuki Customer')
+        ->assertJsonPath('data.delivery_address.full_address', '123 Test Street, Can Tho')
+        ->assertJsonPath('data.shipment.provider', 'ghn')
+        ->assertJsonPath('data.shipment.tracking_code', 'GHNTEST123')
+        ->assertJsonPath('data.shipment.status', 'in_transit');
 });
