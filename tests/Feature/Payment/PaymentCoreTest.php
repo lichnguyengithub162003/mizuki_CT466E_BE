@@ -138,4 +138,10 @@ test('an initially paid internal payment has consistent timestamps without compl
         ->and($payment->cancelled_at)->toBeNull()
         ->and($payment->refunded_at)->toBeNull()
         ->and($context['order']->refresh()->status)->toBe(OrderStatus::Pending);
+
+    $this->actingAs($context['user'])
+        ->getJson("/api/v1/customer/orders/{$context['order']->id}/payment")
+        ->assertOk()
+        ->assertJsonPath('data.status', 'paid')
+        ->assertJsonPath('data.status_label', 'Đã thanh toán');
 });

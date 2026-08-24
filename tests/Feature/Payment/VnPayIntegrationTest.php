@@ -154,6 +154,60 @@ test('customer creates a correctly signed VNPay URL only for their own pending V
         ->assertNotFound();
 });
 
+test('failed VNPay payment on a pending order can retry with the existing payment identity', function (): void {
+    $context = createVnPayContext(status: PaymentStatus::Failed);
+    $paymentId = $context['payment']->id;
+    $paymentNumber = $context['payment']->payment_number;
+
+    $response = $this->actingAs($context['user'])
+        ->postJson("/api/v1/customer/orders/{$context['order']->id}/payment/vnpay")
+        ->assertOk()
+        ->assertJsonPath('data.payment_number', $paymentNumber);
+
+    parse_str((string) parse_url($response->json('data.payment_url'), PHP_URL_QUERY), $params);
+
+    expect($params['vnp_TxnRef'])->toBe($paymentNumber)
+        ->and($context['payment']->refresh()->id)->toBe($paymentId)
+        ->and($context['payment']->payment_number)->toBe($paymentNumber)
+        ->and($context['payment']->status)->toBe(PaymentStatus::Failed)
+        ->and($context['payment']->failed_at)->not->toBeNull();
+    $this->assertDatabaseCount('payments', 1);
+});
+
+test('paid cancelled and refunded VNPay payments cannot create a retry URL', function (PaymentStatus $status): void {
+    $context = createVnPayContext(status: $status);
+
+    $this->actingAs($context['user'])
+        ->postJson("/api/v1/customer/orders/{$context['order']->id}/payment/vnpay")
+        ->assertUnprocessable()
+        ->assertJsonPath('data.errors.payment.0', 'Giao dịch không còn ở trạng thái chờ thanh toán');
+})->with([
+    'paid' => PaymentStatus::Paid,
+    'cancelled' => PaymentStatus::Cancelled,
+    'refunded' => PaymentStatus::Refunded,
+]);
+
+test('failed VNPay payment cannot retry when its order is no longer pending', function (OrderStatus $status): void {
+    $context = createVnPayContext(status: PaymentStatus::Failed);
+    $context['order']->update(['status' => $status]);
+
+    $response = $this->actingAs($context['user'])
+        ->postJson("/api/v1/customer/orders/{$context['order']->id}/payment/vnpay")
+        ->assertUnprocessable();
+
+    if ($status === OrderStatus::Cancelled) {
+        $response->assertJsonPath('data.errors.order.0', 'Đơn hàng đã hủy, không thể thanh toán');
+    } else {
+        $response->assertJsonPath('data.errors.order.0', 'Đơn hàng không còn ở trạng thái chờ thanh toán');
+    }
+
+    expect($context['payment']->refresh()->status)->toBe(PaymentStatus::Failed);
+    $this->assertDatabaseCount('payments', 1);
+})->with([
+    'cancelled order' => OrderStatus::Cancelled,
+    'confirmed order' => OrderStatus::Confirmed,
+]);
+
 test('VNPay URL endpoint enforces authentication role method state amount and cancellation rules', function (): void {
     $vnpay = createVnPayContext();
     $cash = createVnPayContext(PaymentMethod::Cash);

@@ -99,7 +99,11 @@ class PaymentService extends BaseService
             $this->validationError('order', 'Đơn hàng đã hủy, không thể thanh toán');
         }
 
-        if ($payment->status !== PaymentStatus::Pending) {
+        if ($order->status !== OrderStatus::Pending) {
+            $this->validationError('order', 'Đơn hàng không còn ở trạng thái chờ thanh toán');
+        }
+
+        if (! in_array($payment->status, [PaymentStatus::Pending, PaymentStatus::Failed], true)) {
             $this->validationError('payment', 'Giao dịch không còn ở trạng thái chờ thanh toán');
         }
 
