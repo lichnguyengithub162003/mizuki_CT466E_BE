@@ -138,13 +138,26 @@ class AppointmentRepository extends BaseRepository
             ->first();
     }
 
-    public function findTechnicianForBranch(int $technicianId, int $branchId): ?User
+    public function lockTechnicianForBranch(int $technicianId, int $branchId): ?User
     {
         return $this->user->newQuery()
             ->whereKey($technicianId)
             ->where('role', UserRole::Technician->value)
             ->where('branch_id', $branchId)
+            ->lockForUpdate()
             ->first();
+    }
+
+    public function technicianHasOverlap(
+        int $technicianId,
+        CarbonInterface $startsAt,
+        CarbonInterface $endsAt,
+        int $exceptAppointmentId,
+    ): bool {
+        return $this->blockingQuery($startsAt, $endsAt)
+            ->where('technician_id', $technicianId)
+            ->where('appointments.id', '!=', $exceptAppointmentId)
+            ->exists();
     }
 
     /**
@@ -229,8 +242,8 @@ class AppointmentRepository extends BaseRepository
                 fn (Builder $query): Builder => $query->whereDate('starts_at', $filters['appointment_date']),
             )
             ->with($this->detailRelations())
-            ->orderByDesc('created_at')
-            ->orderByDesc('id')
+            ->orderBy('starts_at')
+            ->orderBy('id')
             ->paginate($perPage);
     }
 

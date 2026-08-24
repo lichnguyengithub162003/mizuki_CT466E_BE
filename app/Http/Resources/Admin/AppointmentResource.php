@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Admin;
 
+use App\Enums\AppointmentStatus;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -40,6 +41,7 @@ class AppointmentResource extends JsonResource
                 'id' => $this->technician->id,
                 'name' => $this->technician->name,
             ],
+            'allowed_actions' => $this->allowedActions(),
             'starts_at' => $this->starts_at?->setTimezone($timezone)->toIso8601String(),
             'ends_at' => $this->ends_at?->setTimezone($timezone)->toIso8601String(),
             'customer_note' => $this->customer_note,
@@ -49,5 +51,20 @@ class AppointmentResource extends JsonResource
             'created_at' => $this->created_at?->setTimezone($timezone)->toIso8601String(),
             'updated_at' => $this->updated_at?->setTimezone($timezone)->toIso8601String(),
         ];
+    }
+
+    /** @return list<string> */
+    private function allowedActions(): array
+    {
+        return match ($this->status) {
+            AppointmentStatus::Pending => ['confirm', 'assign_technician', 'cancel'],
+            AppointmentStatus::Confirmed => array_values(array_filter([
+                'assign_technician',
+                $this->technician_id === null ? null : 'start',
+                'cancel',
+            ])),
+            AppointmentStatus::InProgress => ['complete'],
+            default => [],
+        };
     }
 }

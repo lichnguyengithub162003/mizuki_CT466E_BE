@@ -183,6 +183,16 @@ test('admin list filters by status branch technician date and keyword', function
     }
 });
 
+test('admin appointment filters reject unsupported contract values', function (): void {
+    $this->actingAs($this->superAdmin);
+
+    $this->getJson('/api/v1/admin/appointments?status=unknown')->assertUnprocessable();
+    $this->getJson('/api/v1/admin/appointments?branch_id=0')->assertUnprocessable();
+    $this->getJson('/api/v1/admin/appointments?technician_id=0')->assertUnprocessable();
+    $this->getJson('/api/v1/admin/appointments?appointment_date=03-08-2026')->assertUnprocessable();
+    $this->getJson('/api/v1/admin/appointments?per_page=101')->assertUnprocessable();
+});
+
 test('walk-in with customer account snapshots customer and creates confirmed appointment', function (): void {
     $this->actingAs($this->manager);
     $payload = $this->walkInPayload;
@@ -201,6 +211,23 @@ test('walk-in with customer account snapshots customer and creates confirmed app
         'customer_name' => $this->customer->name,
         'customer_phone' => $this->customer->phone,
         'service_price' => $this->service->price,
+    ]);
+});
+
+test('walk-in linked to an account keeps the authoritative customer snapshot', function (): void {
+    $this->actingAs($this->manager);
+
+    $this->postJson('/api/v1/admin/appointments/walk-in', [
+        ...$this->walkInPayload,
+        'customer_id' => $this->customer->id,
+        'customer_name' => 'Tên giả từ frontend',
+        'customer_phone' => '0999999999',
+    ])->assertCreated();
+
+    $this->assertDatabaseHas('appointments', [
+        'user_id' => $this->customer->id,
+        'customer_name' => $this->customer->name,
+        'customer_phone' => $this->customer->phone,
     ]);
 });
 
@@ -286,7 +313,13 @@ test('technician assignment is branch scoped and idempotent', function (): void 
 
     $this->postJson("/api/v1/admin/appointments/{$appointment->id}/assign-technician", [
         'technician_id' => $this->technician->id,
-    ])->assertOk()->assertJsonPath('data.technician.id', $this->technician->id);
+    ])->assertOk()
+        ->assertJsonPath('data.technician.id', $this->technician->id)
+        ->assertJsonPath('data.allowed_actions', [
+            'assign_technician',
+            'start',
+            'cancel',
+        ]);
 
     $this->postJson("/api/v1/admin/appointments/{$appointment->id}/assign-technician", [
         'technician_id' => $this->technician->id,
@@ -299,6 +332,44 @@ test('technician assignment is branch scoped and idempotent', function (): void 
     expect($appointment->refresh()->technician_id)->toBe($this->technician->id);
 });
 
+test('technician assignment rejects schedule overlap and appointments already in progress', function (): void {
+    $assigned = makeAdminAppointment($this->branch, $this->service, null, [
+        'status' => AppointmentStatus::Confirmed,
+        'technician_id' => $this->technician->id,
+    ]);
+    $overlap = makeAdminAppointment($this->branch, $this->service, null, [
+        'status' => AppointmentStatus::Confirmed,
+        'starts_at' => '2026-08-03 09:30:00',
+        'ends_at' => '2026-08-03 10:30:00',
+    ]);
+    $inProgress = makeAdminAppointment($this->branch, $this->service, null, [
+        'status' => AppointmentStatus::InProgress,
+        'starts_at' => '2026-08-03 11:00:00',
+        'ends_at' => '2026-08-03 12:00:00',
+    ]);
+    $this->actingAs($this->manager);
+
+    $this->postJson("/api/v1/admin/appointments/{$overlap->id}/assign-technician", [
+        'technician_id' => $this->technician->id,
+    ])->assertUnprocessable()
+        ->assertJsonPath(
+            'data.errors.technician_id.0',
+            'Kỹ thuật viên đã có lịch hẹn trùng với khung giờ này!',
+        );
+
+    $this->postJson("/api/v1/admin/appointments/{$inProgress->id}/assign-technician", [
+        'technician_id' => $this->technician->id,
+    ])->assertUnprocessable()
+        ->assertJsonPath(
+            'data.errors.status.0',
+            'Chỉ có thể phân công kỹ thuật viên cho lịch hẹn đang chờ hoặc đã xác nhận!',
+        );
+
+    expect($assigned->refresh()->technician_id)->toBe($this->technician->id)
+        ->and($overlap->refresh()->technician_id)->toBeNull()
+        ->and($inProgress->refresh()->technician_id)->toBeNull();
+});
+
 test('admin starts assigned confirmed appointment then completes it', function (): void {
     $appointment = makeAdminAppointment($this->branch, $this->service, null, [
         'status' => AppointmentStatus::Confirmed,
@@ -307,11 +378,14 @@ test('admin starts assigned confirmed appointment then completes it', function (
     $this->actingAs($this->manager);
 
     $this->postJson("/api/v1/admin/appointments/{$appointment->id}/start")
-        ->assertOk()->assertJsonPath('data.status', 'in_progress');
+        ->assertOk()
+        ->assertJsonPath('data.status', 'in_progress')
+        ->assertJsonPath('data.allowed_actions', ['complete']);
     $this->postJson("/api/v1/admin/appointments/{$appointment->id}/complete", [
         'staff_note' => 'Đã hoàn thành liệu trình',
     ])->assertOk()
         ->assertJsonPath('data.status', 'completed')
+        ->assertJsonPath('data.allowed_actions', [])
         ->assertJsonPath('data.staff_note', 'Đã hoàn thành liệu trình');
 
     expect($appointment->refresh()->completed_at)->not->toBeNull();
@@ -326,6 +400,22 @@ test('admin cannot start without technician assignment', function (): void {
         ->postJson("/api/v1/admin/appointments/{$appointment->id}/start")
         ->assertUnprocessable()
         ->assertJsonStructure(['data' => ['errors' => ['technician_id']]]);
+});
+
+test('admin cannot start after the assigned technician leaves the branch', function (): void {
+    $appointment = makeAdminAppointment($this->branch, $this->service, null, [
+        'status' => AppointmentStatus::Confirmed,
+        'technician_id' => $this->technician->id,
+    ]);
+    $this->technician->update(['branch_id' => $this->otherBranch->id]);
+
+    $this->actingAs($this->manager)
+        ->postJson("/api/v1/admin/appointments/{$appointment->id}/start")
+        ->assertUnprocessable()
+        ->assertJsonPath(
+            'data.errors.technician_id.0',
+            'Vui lòng phân công kỹ thuật viên hợp lệ trước khi bắt đầu!',
+        );
 });
 
 test('admin cancels pending or confirmed but terminal transitions are rejected', function (AppointmentStatus $status): void {
