@@ -40,4 +40,18 @@ class OrderPolicy
             && $user->branch_id !== null
             && $order->branch_id === $user->branch_id;
     }
+
+    public function process(User $user, Order $order): bool
+    {
+        return $user->role === UserRole::BranchManager
+            && $user->branch_id !== null
+            && $order->branch_id === $user->branch_id;
+    }
+
+    public function complete(User $user, Order $order): bool
+    {
+        return $user->role === UserRole::BranchManager
+            && $user->branch_id !== null
+            && $order->branch_id === $user->branch_id;
+    }
 }

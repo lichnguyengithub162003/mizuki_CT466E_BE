@@ -106,6 +106,64 @@ class OrderController extends BaseController
 
     /**
      * @OA\Post(
+     *     path="/api/v1/admin/orders/{id}/process",
+     *     operationId="adminProcessOrder",
+     *     tags={"Admin Orders"},
+     *     summary="Bắt đầu xử lý đơn hàng đã xác nhận",
+     *
+     *     @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *
+     *     @OA\Response(response=200, description="Đơn hàng đang được xử lý"),
+     *     @OA\Response(response=404, description="Không tìm thấy đơn hàng"),
+     *     @OA\Response(response=422, description="Trạng thái hoặc thanh toán không hợp lệ")
+     * )
+     */
+    public function process(Request $request, int $id): JsonResponse
+    {
+        $order = $this->orders->process($request->user(), $id);
+
+        if ($order === null) {
+            return $this->orderNotFound();
+        }
+
+        return $this->successResponse(
+            request: $request,
+            resource: new OrderResource($order),
+            message: 'Bắt đầu xử lý đơn hàng thành công!',
+        );
+    }
+
+    /**
+     * @OA\Post(
+     *     path="/api/v1/admin/orders/{id}/complete",
+     *     operationId="adminCompletePickupOrder",
+     *     tags={"Admin Orders"},
+     *     summary="Hoàn tất đơn nhận tại chi nhánh",
+     *
+     *     @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *
+     *     @OA\Response(response=200, description="Đơn hàng đã hoàn tất"),
+     *     @OA\Response(response=404, description="Không tìm thấy đơn hàng"),
+     *     @OA\Response(response=422, description="Trạng thái, hình thức nhận hoặc thanh toán không hợp lệ")
+     * )
+     */
+    public function complete(Request $request, int $id): JsonResponse
+    {
+        $order = $this->orders->completePickup($request->user(), $id);
+
+        if ($order === null) {
+            return $this->orderNotFound();
+        }
+
+        return $this->successResponse(
+            request: $request,
+            resource: new OrderResource($order),
+            message: 'Hoàn tất đơn hàng thành công!',
+        );
+    }
+
+    /**
+     * @OA\Post(
      *     path="/api/v1/admin/orders/{id}/shipment",
      *     operationId="adminCreateGhnShipment",
      *     tags={"Admin Orders"},

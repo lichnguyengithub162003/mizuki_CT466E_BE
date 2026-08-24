@@ -186,6 +186,8 @@ class OrderRepository extends BaseRepository
                 'user:id,name,email,phone',
                 'branch:id,name,address',
                 'items',
+                'payment',
+                'shipment',
                 'refunds',
             ])
             ->orderByDesc('created_at')
@@ -204,6 +206,8 @@ class OrderRepository extends BaseRepository
                 'user:id,name,email,phone',
                 'branch:id,name,address',
                 'items',
+                'payment',
+                'shipment',
                 'refunds.reviewedBy:id,name',
             ])
             ->first();
@@ -216,6 +220,7 @@ class OrderRepository extends BaseRepository
     ): ?Order {
         return $this->adminScope($this->query(), $role, $branchId)
             ->whereKey($orderId)
+            ->with(['items', 'payment', 'shipment'])
             ->lockForUpdate()
             ->first();
     }
@@ -247,7 +252,38 @@ class OrderRepository extends BaseRepository
 
     public function markConfirmed(Order $order): Order
     {
-        $order->fill(['status' => OrderStatus::Confirmed])->save();
+        return $this->markStatus($order, OrderStatus::Confirmed);
+    }
+
+    public function markProcessing(Order $order): Order
+    {
+        return $this->markStatus($order, OrderStatus::Processing);
+    }
+
+    public function markDelivered(Order $order): Order
+    {
+        return $this->markStatus($order, OrderStatus::Delivered);
+    }
+
+    public function consumeReservedInventory(Order $order): void
+    {
+        foreach ($order->items as $item) {
+            $inventory = $this->lockInventory($order->branch_id, $item->product_variant_id);
+
+            if ($inventory === null
+                || $inventory->reserved_quantity < $item->quantity
+                || $inventory->quantity < $item->quantity) {
+                throw new \RuntimeException('Reserved inventory is inconsistent for order '.$order->id);
+            }
+
+            $inventory->decrement('quantity', $item->quantity);
+            $inventory->decrement('reserved_quantity', $item->quantity);
+        }
+    }
+
+    private function markStatus(Order $order, OrderStatus $status): Order
+    {
+        $order->fill(['status' => $status])->save();
 
         return $this->findForAdmin($order->id, UserRole::SuperAdmin, null)
             ?? $order->refresh();

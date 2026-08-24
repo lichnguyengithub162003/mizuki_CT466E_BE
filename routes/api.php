@@ -176,6 +176,8 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
             ->group(function (): void {
                 Route::get('/', [AdminOrderController::class, 'index'])->name('index');
                 Route::post('{id}/confirm', [AdminOrderController::class, 'confirm'])->name('confirm');
+                Route::post('{id}/process', [AdminOrderController::class, 'process'])->name('process');
+                Route::post('{id}/complete', [AdminOrderController::class, 'complete'])->name('complete');
                 Route::post('{id}/shipment', [AdminOrderController::class, 'createShipment'])->name('shipment.create');
                 Route::post('{id}/shipment/cancel', [AdminOrderController::class, 'cancelShipment'])
                     ->name('shipment.cancel');

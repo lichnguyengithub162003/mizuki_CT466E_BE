@@ -4,6 +4,7 @@ namespace App\Services\Admin;
 
 use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
+use App\Enums\PaymentStatus;
 use App\Events\OrderStatusUpdated;
 use App\Exceptions\Shipping\GhnApiException;
 use App\Models\Order;
@@ -87,6 +88,7 @@ class OrderService extends BaseService
                 ]);
             }
 
+            $this->assertPaymentReady($order);
             $previousStatus = $order->status;
 
             return [
@@ -100,6 +102,83 @@ class OrderService extends BaseService
         }
 
         // Dispatch only after the transaction has committed successfully.
+        OrderStatusUpdated::dispatch($result['order'], $result['previous_status']);
+
+        return $result['order'];
+    }
+
+    public function process(User $user, int $orderId): ?Order
+    {
+        $result = $this->orders->transaction(function () use ($user, $orderId): ?array {
+            $order = $this->orders->lockForAdmin($orderId, $user->role, $user->branch_id);
+
+            if ($order === null) {
+                return null;
+            }
+
+            Gate::forUser($user)->authorize('process', $order);
+
+            if ($order->status !== OrderStatus::Confirmed) {
+                throw ValidationException::withMessages([
+                    'status' => ['Chỉ có thể xử lý đơn hàng đã xác nhận'],
+                ]);
+            }
+
+            $this->assertPaymentReady($order);
+            $previousStatus = $order->status;
+
+            return [
+                'order' => $this->orders->markProcessing($order),
+                'previous_status' => $previousStatus,
+            ];
+        });
+
+        if ($result === null) {
+            return null;
+        }
+
+        OrderStatusUpdated::dispatch($result['order'], $result['previous_status']);
+
+        return $result['order'];
+    }
+
+    public function completePickup(User $user, int $orderId): ?Order
+    {
+        $result = $this->orders->transaction(function () use ($user, $orderId): ?array {
+            $order = $this->orders->lockForAdmin($orderId, $user->role, $user->branch_id);
+
+            if ($order === null) {
+                return null;
+            }
+
+            Gate::forUser($user)->authorize('complete', $order);
+
+            if ($order->fulfillment_method !== 'pickup') {
+                throw ValidationException::withMessages([
+                    'fulfillment_method' => ['Chỉ đơn nhận tại chi nhánh mới hoàn tất thủ công'],
+                ]);
+            }
+
+            if ($order->status !== OrderStatus::Processing) {
+                throw ValidationException::withMessages([
+                    'status' => ['Chỉ có thể hoàn tất đơn hàng đang được xử lý'],
+                ]);
+            }
+
+            $this->settlePickupPayment($order, $user);
+            $this->orders->consumeReservedInventory($order);
+            $previousStatus = $order->status;
+
+            return [
+                'order' => $this->orders->markDelivered($order),
+                'previous_status' => $previousStatus,
+            ];
+        });
+
+        if ($result === null) {
+            return null;
+        }
+
         OrderStatusUpdated::dispatch($result['order'], $result['previous_status']);
 
         return $result['order'];
@@ -119,6 +198,12 @@ class OrderService extends BaseService
             }
 
             Gate::forUser($user)->authorize('view', $order);
+
+            if ($order->status !== OrderStatus::Processing) {
+                throw ValidationException::withMessages([
+                    'status' => ['Chỉ đơn hàng đang được xử lý mới có thể tạo vận đơn'],
+                ]);
+            }
 
             if ($order->shipment !== null) {
                 return $order->shipment;
@@ -246,6 +331,57 @@ class OrderService extends BaseService
                 'shipping' => ['Đơn hàng chưa có đầy đủ thông tin giao hàng'],
             ]);
         }
+    }
+
+    private function assertPaymentReady(Order $order): void
+    {
+        if ($order->payment === null) {
+            throw ValidationException::withMessages([
+                'payment' => ['Đơn hàng chưa có giao dịch thanh toán'],
+            ]);
+        }
+
+        if ($order->payment_method === PaymentMethod::Cash
+            && ! in_array($order->payment->status, [
+                PaymentStatus::Pending,
+                PaymentStatus::Paid,
+            ], true)) {
+            throw ValidationException::withMessages([
+                'payment' => ['Giao dịch COD không còn hợp lệ để xử lý'],
+            ]);
+        }
+
+        if ($order->payment_method !== PaymentMethod::Cash
+            && $order->payment->status !== PaymentStatus::Paid) {
+            throw ValidationException::withMessages([
+                'payment' => ['Đơn hàng chưa được thanh toán'],
+            ]);
+        }
+    }
+
+    private function settlePickupPayment(Order $order, User $operator): void
+    {
+        $this->assertPaymentReady($order);
+
+        if ($order->payment_method !== PaymentMethod::Cash) {
+            return;
+        }
+
+        if ($order->payment->status === PaymentStatus::Paid) {
+            return;
+        }
+
+        if ($order->payment->status !== PaymentStatus::Pending) {
+            throw ValidationException::withMessages([
+                'payment' => ['Giao dịch COD không còn ở trạng thái chờ thanh toán'],
+            ]);
+        }
+
+        $order->payment->fill([
+            'status' => PaymentStatus::Paid,
+            'processed_by_user_id' => $operator->id,
+            'paid_at' => now(),
+        ])->save();
     }
 
     /**

@@ -9,6 +9,7 @@ use App\Models\Branch;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Refund;
+use App\Models\Shipment;
 use App\Models\User;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
@@ -77,6 +78,8 @@ test('guest and customer cannot access admin order and refund endpoints', functi
         ['GET', '/api/v1/admin/orders'],
         ['GET', '/api/v1/admin/orders/1'],
         ['POST', '/api/v1/admin/orders/1/confirm'],
+        ['POST', '/api/v1/admin/orders/1/process'],
+        ['POST', '/api/v1/admin/orders/1/complete'],
         ['GET', '/api/v1/admin/refunds'],
         ['GET', '/api/v1/admin/refunds/1'],
         ['POST', '/api/v1/admin/refunds/1/approve'],
@@ -347,6 +350,7 @@ test('admin confirms only pending orders and dispatches status event after commi
     $customer = User::factory()->create(['role' => UserRole::Customer]);
     $pending = createAdminManagedOrder($branch, $customer);
     $confirmed = createAdminManagedOrder($branch, $customer, OrderStatus::Confirmed);
+    app(PaymentService::class)->createForOrder($pending, PaymentStatus::Pending);
     $manager = User::factory()->create([
         'role' => UserRole::BranchManager,
         'branch_id' => $branch->id,
@@ -367,6 +371,122 @@ test('admin confirms only pending orders and dispatches status event after commi
     $this->postJson("/api/v1/admin/orders/{$confirmed->id}/confirm")
         ->assertUnprocessable()
         ->assertJsonPath('data.errors.status.0', 'Chỉ có thể xác nhận đơn hàng đang chờ xác nhận');
+});
+
+test('admin order filters reject unsupported contract values', function (): void {
+    $this->actingAs(User::factory()->create(['role' => UserRole::SuperAdmin]));
+
+    $this->getJson('/api/v1/admin/orders?status=unknown')->assertUnprocessable();
+    $this->getJson('/api/v1/admin/orders?branch_id=0')->assertUnprocessable();
+    $this->getJson('/api/v1/admin/orders?per_page=101')->assertUnprocessable();
+});
+
+test('admin order detail exposes payment delivery shipment and allowed actions', function (): void {
+    $branch = createOrderAdminBranch('OD');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    $order = createAdminManagedOrder($branch, $customer, OrderStatus::Processing);
+    $order->update([
+        'fulfillment_method' => 'shipping',
+        'user_address_id' => null,
+        'recipient_name' => 'Mizuki Customer',
+        'recipient_phone' => '0900000000',
+        'province_code' => 'CT',
+        'ghn_district_id' => 1442,
+        'ghn_ward_code' => '21012',
+        'shipping_address' => '123 Test Street, Can Tho',
+        'shipping_fee' => 30_000,
+        'total_amount' => 330_000,
+        'note' => 'Giao trong giờ hành chính',
+    ]);
+    $payment = app(PaymentService::class)->createForOrder($order, PaymentStatus::Paid);
+    Shipment::query()->create([
+        'order_id' => $order->id,
+        'provider' => 'ghn',
+        'ghn_order_code' => 'GHN-ADMIN-001',
+        'status' => 'ready_to_pick',
+        'shipping_fee' => 30_000,
+    ]);
+    $this->actingAs(User::factory()->create(['role' => UserRole::SuperAdmin]));
+
+    $this->getJson("/api/v1/admin/orders/{$order->id}")
+        ->assertOk()
+        ->assertJsonPath('data.payment.id', $payment->id)
+        ->assertJsonPath('data.payment.status', 'paid')
+        ->assertJsonPath('data.delivery_address.address_id', null)
+        ->assertJsonPath('data.delivery_address.recipient_name', 'Mizuki Customer')
+        ->assertJsonPath('data.delivery_address.full_address', '123 Test Street, Can Tho')
+        ->assertJsonPath('data.shipment.tracking_code', 'GHN-ADMIN-001')
+        ->assertJsonPath('data.shipment.status', 'ready_to_pick')
+        ->assertJsonPath('data.allowed_actions.0', 'shipment_label')
+        ->assertJsonPath('data.allowed_actions.1', 'cancel_shipment')
+        ->assertJsonPath('data.note', 'Giao trong giờ hành chính');
+});
+
+test('admin processes only confirmed paid or COD orders within branch scope', function (): void {
+    Event::fake([OrderStatusUpdated::class]);
+    $ownBranch = createOrderAdminBranch('PO');
+    $otherBranch = createOrderAdminBranch('PX');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    $ownOrder = createAdminManagedOrder($ownBranch, $customer, OrderStatus::Confirmed);
+    $otherOrder = createAdminManagedOrder($otherBranch, $customer, OrderStatus::Confirmed);
+    app(PaymentService::class)->createForOrder($ownOrder, PaymentStatus::Pending);
+    app(PaymentService::class)->createForOrder($otherOrder, PaymentStatus::Pending);
+    $manager = User::factory()->create([
+        'role' => UserRole::BranchManager,
+        'branch_id' => $ownBranch->id,
+    ]);
+    $this->actingAs($manager);
+
+    $this->postJson("/api/v1/admin/orders/{$ownOrder->id}/process")
+        ->assertOk()
+        ->assertJsonPath('data.status', 'processing')
+        ->assertJsonPath('data.allowed_actions.0', 'complete');
+
+    expect($ownOrder->refresh()->status)->toBe(OrderStatus::Processing);
+    Event::assertDispatched(
+        OrderStatusUpdated::class,
+        fn (OrderStatusUpdated $event): bool => $event->order->id === $ownOrder->id
+            && $event->previousStatus === OrderStatus::Confirmed,
+    );
+
+    $this->postJson("/api/v1/admin/orders/{$otherOrder->id}/process")
+        ->assertNotFound();
+    $this->postJson("/api/v1/admin/orders/{$ownOrder->id}/process")
+        ->assertUnprocessable();
+});
+
+test('admin completes pickup COD atomically and rejects manual shipping completion', function (): void {
+    Event::fake([OrderStatusUpdated::class]);
+    $branch = createOrderAdminBranch('CP');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    $pickup = createAdminManagedOrder($branch, $customer, OrderStatus::Processing);
+    $pickupPayment = app(PaymentService::class)->createForOrder($pickup, PaymentStatus::Pending);
+    $shipping = createAdminManagedOrder($branch, $customer, OrderStatus::Processing);
+    $shipping->update(['fulfillment_method' => 'shipping']);
+    app(PaymentService::class)->createForOrder($shipping, PaymentStatus::Pending);
+    $manager = User::factory()->create([
+        'role' => UserRole::BranchManager,
+        'branch_id' => $branch->id,
+    ]);
+    $this->actingAs($manager);
+
+    $this->postJson("/api/v1/admin/orders/{$pickup->id}/complete")
+        ->assertOk()
+        ->assertJsonPath('data.status', 'delivered')
+        ->assertJsonPath('data.payment.status', 'paid')
+        ->assertJsonPath('data.allowed_actions', []);
+
+    expect($pickup->refresh()->status)->toBe(OrderStatus::Delivered)
+        ->and($pickupPayment->refresh()->status)->toBe(PaymentStatus::Paid)
+        ->and($pickupPayment->processed_by_user_id)->toBe($manager->id)
+        ->and($pickupPayment->paid_at)->not->toBeNull();
+
+    $this->postJson("/api/v1/admin/orders/{$shipping->id}/complete")
+        ->assertUnprocessable()
+        ->assertJsonPath(
+            'data.errors.fulfillment_method.0',
+            'Chỉ đơn nhận tại chi nhánh mới hoàn tất thủ công',
+        );
 });
 
 test('admin approves requested refund with default amount and stores reviewer metadata', function (): void {
