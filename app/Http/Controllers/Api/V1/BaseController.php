@@ -14,11 +14,11 @@ abstract class BaseController extends Controller
     /**
      * Transform an API Resource into the project-wide success envelope.
      *
-     * @param array<string, mixed> $meta
+     * @param  array<string, mixed>  $meta
      */
     protected function successResponse(
         Request $request,
-        JsonResource|null $resource,
+        ?JsonResource $resource,
         string $message = '',
         int $status = 200,
         array $meta = [],
@@ -35,6 +35,8 @@ abstract class BaseController extends Controller
 
     /**
      * Transform a paginated API Resource into the project-wide success envelope.
+     *
+     * @param  array<string, mixed>  $meta
      */
     protected function paginatedResponse(
         Request $request,
@@ -42,6 +44,7 @@ abstract class BaseController extends Controller
         LengthAwarePaginator $paginator,
         string $message = '',
         int $status = 200,
+        array $meta = [],
     ): JsonResponse {
         return $this->successResponse(
             request: $request,
@@ -49,6 +52,7 @@ abstract class BaseController extends Controller
             message: $message,
             status: $status,
             meta: [
+                ...$meta,
                 'pagination' => [
                     'current_page' => $paginator->currentPage(),
                     'per_page' => $paginator->perPage(),
@@ -62,13 +66,13 @@ abstract class BaseController extends Controller
     /**
      * Return a project-wide error envelope.
      *
-     * @param array<string, mixed>|null $data
-     * @param array<string, mixed> $meta
+     * @param  array<string, mixed>|null  $data
+     * @param  array<string, mixed>  $meta
      */
     protected function errorResponse(
         string $message,
         int $status,
-        array|null $data = null,
+        ?array $data = null,
         array $meta = [],
     ): JsonResponse {
         return ApiResponse::error(
