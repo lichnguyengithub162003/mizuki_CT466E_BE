@@ -88,7 +88,7 @@ function createGhnShipmentContext(
         'channel' => 'online',
         'fulfillment_method' => $fulfillmentMethod,
         'payment_method' => PaymentMethod::Cash,
-        'status' => OrderStatus::Confirmed,
+        'status' => OrderStatus::Processing,
         'recipient_name' => $fulfillmentMethod === 'shipping' ? 'Nguyễn Khách Hàng' : null,
         'recipient_phone' => $fulfillmentMethod === 'shipping' ? '0901234567' : null,
         'province_code' => $fulfillmentMethod === 'shipping' ? 'CT' : null,
@@ -224,6 +224,29 @@ test('pickup and incomplete delivery orders are rejected before GHN is called', 
     $this->assertDatabaseCount('shipments', 0);
 });
 
+test('shipment creation rejects orders outside the processing state', function (OrderStatus $status): void {
+    $context = createGhnShipmentContext();
+    $context['order']->update(['status' => $status]);
+    $admin = User::factory()->create(['role' => UserRole::SuperAdmin]);
+    Http::fake();
+    $this->actingAs($admin);
+
+    $this->postJson("/api/v1/admin/orders/{$context['order']->id}/shipment")
+        ->assertUnprocessable()
+        ->assertJsonPath(
+            'data.errors.status.0',
+            'Chỉ đơn hàng đang được xử lý mới có thể tạo vận đơn',
+        );
+
+    Http::assertNothingSent();
+    $this->assertDatabaseCount('shipments', 0);
+})->with([
+    OrderStatus::Pending,
+    OrderStatus::Confirmed,
+    OrderStatus::Delivered,
+    OrderStatus::Cancelled,
+]);
+
 test('GHN failure leaves no shipment record', function (): void {
     $context = createGhnShipmentContext();
     $admin = User::factory()->create(['role' => UserRole::SuperAdmin]);
@@ -291,5 +314,5 @@ test('shipment persistence failure rolls back the database transaction', functio
     }
 
     $this->assertDatabaseCount('shipments', 0);
-    expect($context['order']->refresh()->status)->toBe(OrderStatus::Confirmed);
+    expect($context['order']->refresh()->status)->toBe(OrderStatus::Processing);
 });
