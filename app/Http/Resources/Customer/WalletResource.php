@@ -14,6 +14,7 @@ class WalletResource extends JsonResource
             'id' => $this->id,
             'balance' => $this->balance,
             'currency' => 'VND',
+            'updated_at' => $this->updated_at?->toISOString(),
         ];
     }
 }

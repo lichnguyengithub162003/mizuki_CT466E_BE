@@ -33,15 +33,20 @@ class WalletService extends BaseService
     }
 
     /**
+     * @param  array<string, mixed>  $filters
      * @return array{wallet: Wallet, transactions: LengthAwarePaginator<int, WalletTransaction>}
      */
-    public function transactionsForCustomer(User $user, int $perPage): array
+    public function transactionsForCustomer(User $user, array $filters): array
     {
         $wallet = $this->forCustomer($user);
 
         return [
             'wallet' => $wallet,
-            'transactions' => $this->transactions->paginateForWallet($wallet->id, $perPage),
+            'transactions' => $this->transactions->paginateForWallet(
+                walletId: $wallet->id,
+                filters: $filters,
+                perPage: (int) ($filters['per_page'] ?? 20),
+            ),
         ];
     }
 

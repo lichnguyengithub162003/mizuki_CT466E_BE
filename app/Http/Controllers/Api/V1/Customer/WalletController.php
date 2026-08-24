@@ -48,6 +48,9 @@ class WalletController extends BaseController
      *     security={{"sanctum":{}}},
      *
      *     @OA\Parameter(name="per_page", in="query", required=false, @OA\Schema(type="integer", minimum=1, maximum=100)),
+     *     @OA\Parameter(name="type", in="query", required=false, @OA\Schema(type="string", enum={"order_payment", "wallet_top_up", "refund"})),
+     *     @OA\Parameter(name="direction", in="query", required=false, @OA\Schema(type="string", enum={"debit", "credit"})),
+     *     @OA\Parameter(name="page", in="query", required=false, @OA\Schema(type="integer", minimum=1)),
      *
      *     @OA\Response(response=200, description="Lịch sử giao dịch ví"),
      *     @OA\Response(response=401, description="Chưa đăng nhập"),
@@ -58,7 +61,7 @@ class WalletController extends BaseController
     {
         $result = $this->wallets->transactionsForCustomer(
             $request->user(),
-            (int) $request->validated('per_page', 20),
+            $request->validated(),
         );
 
         return $this->paginatedResponse(
@@ -66,6 +69,9 @@ class WalletController extends BaseController
             resource: WalletTransactionResource::collection($result['transactions']),
             paginator: $result['transactions'],
             message: 'Lấy lịch sử giao dịch ví thành công!',
+            meta: [
+                'wallet' => (new WalletResource($result['wallet']))->resolve($request),
+            ],
         );
     }
 }
