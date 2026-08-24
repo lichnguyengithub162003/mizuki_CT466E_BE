@@ -82,6 +82,7 @@ class OrderRepository extends BaseRepository
             'branch:id,name,address',
             'promotion:id,code,name',
             'userAddress',
+            'shipment',
             'items' => fn (Builder|HasMany $query): Builder|HasMany => $query->orderBy('id'),
         ]);
     }

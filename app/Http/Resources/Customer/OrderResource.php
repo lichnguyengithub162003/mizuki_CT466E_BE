@@ -23,7 +23,7 @@ class OrderResource extends JsonResource
                 'name' => $this->branch->name,
                 'address' => $this->branch->address,
             ],
-            'delivery_address' => $this->user_address_id === null ? null : [
+            'delivery_address' => $this->fulfillment_method !== 'shipping' ? null : [
                 'address_id' => $this->user_address_id,
                 'recipient_name' => $this->recipient_name,
                 'recipient_phone' => $this->recipient_phone,
@@ -37,6 +37,16 @@ class OrderResource extends JsonResource
                 'code' => $this->promotion?->code,
                 'name' => $this->promotion?->name,
                 'discount_amount' => $this->discount_amount,
+            ],
+            'shipment' => $this->shipment === null ? null : [
+                'provider' => $this->shipment->provider,
+                'tracking_code' => $this->shipment->ghn_order_code,
+                'status' => $this->shipment->status,
+                'shipping_fee' => $this->shipment->shipping_fee,
+                'expected_delivery_at' => $this->shipment->expected_delivery_at?->toISOString(),
+                'shipped_at' => $this->shipment->shipped_at?->toISOString(),
+                'delivered_at' => $this->shipment->delivered_at?->toISOString(),
+                'cancelled_at' => $this->shipment->cancelled_at?->toISOString(),
             ],
             'items' => $this->items->map(fn (OrderItem $item): array => [
                 'id' => $item->id,
