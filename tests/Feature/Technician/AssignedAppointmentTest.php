@@ -50,8 +50,9 @@ function makeAssignedAppointment(
     Service $service,
     ?User $technician,
     AppointmentStatus $status = AppointmentStatus::Confirmed,
+    array $overrides = [],
 ): Appointment {
-    return Appointment::query()->create([
+    return Appointment::query()->create(array_merge([
         'appointment_number' => 'APT-TECH-'.Str::upper(Str::random(8)),
         'user_id' => null,
         'customer_name' => 'Khách kỹ thuật viên',
@@ -65,7 +66,7 @@ function makeAssignedAppointment(
         'duration_minutes' => $service->duration_minutes,
         'starts_at' => '2026-08-03 09:00:00',
         'ends_at' => '2026-08-03 10:00:00',
-    ]);
+    ], $overrides));
 }
 
 test('guest and non-technician roles are denied technician endpoints', function (): void {
@@ -91,6 +92,39 @@ test('technician lists only own assigned appointments', function (): void {
         ->assertJsonPath('data.0.id', $own->id);
 });
 
+test('technician schedule is chronological and validates filters', function (): void {
+    $later = makeAssignedAppointment(
+        $this->branch,
+        $this->service,
+        $this->technician,
+        AppointmentStatus::Confirmed,
+        [
+            'starts_at' => '2026-08-03 11:00:00',
+            'ends_at' => '2026-08-03 12:00:00',
+        ],
+    );
+    $earlier = makeAssignedAppointment(
+        $this->branch,
+        $this->service,
+        $this->technician,
+        AppointmentStatus::Confirmed,
+        [
+            'starts_at' => '2026-08-03 09:00:00',
+            'ends_at' => '2026-08-03 10:00:00',
+        ],
+    );
+    $this->actingAs($this->technician);
+
+    $this->getJson('/api/v1/technician/appointments?appointment_date=2026-08-03')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $earlier->id)
+        ->assertJsonPath('data.1.id', $later->id);
+
+    $this->getJson('/api/v1/technician/appointments?status=unknown')->assertUnprocessable();
+    $this->getJson('/api/v1/technician/appointments?appointment_date=03-08-2026')->assertUnprocessable();
+    $this->getJson('/api/v1/technician/appointments?per_page=101')->assertUnprocessable();
+});
+
 test('technician views only own assigned appointment', function (): void {
     $own = makeAssignedAppointment($this->branch, $this->service, $this->technician);
     $other = makeAssignedAppointment($this->branch, $this->service, $this->otherTechnician);
@@ -111,6 +145,7 @@ test('technician starts own confirmed appointment and persists optional staff no
         ])
         ->assertOk()
         ->assertJsonPath('data.status', 'in_progress')
+        ->assertJsonPath('data.allowed_actions', ['complete'])
         ->assertJsonPath('data.staff_note', 'Bắt đầu liệu trình');
 });
 
@@ -144,6 +179,7 @@ test('technician completes own in-progress appointment with staff note', functio
         ])
         ->assertOk()
         ->assertJsonPath('data.status', 'completed')
+        ->assertJsonPath('data.allowed_actions', [])
         ->assertJsonPath('data.staff_note', 'Da đáp ứng tốt');
 
     expect($appointment->refresh()->completed_at)->not->toBeNull();

@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Technician;
 
+use App\Enums\AppointmentStatus;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -30,6 +31,11 @@ class AppointmentResource extends JsonResource
                 'name' => $this->service_name,
                 'duration_minutes' => $this->duration_minutes,
             ],
+            'allowed_actions' => match ($this->status) {
+                AppointmentStatus::Confirmed => ['start'],
+                AppointmentStatus::InProgress => ['complete'],
+                default => [],
+            },
             'starts_at' => $this->starts_at?->setTimezone($timezone)->toIso8601String(),
             'ends_at' => $this->ends_at?->setTimezone($timezone)->toIso8601String(),
             'customer_note' => $this->customer_note,

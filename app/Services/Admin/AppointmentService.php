@@ -106,8 +106,8 @@ class AppointmentService extends BaseService
             return $this->appointments->createAppointment([
                 'appointment_number' => $this->appointmentNumber(),
                 'user_id' => $customer?->id,
-                'customer_name' => $data['customer_name'] ?? $customer?->name,
-                'customer_phone' => $data['customer_phone'] ?? $customer?->phone,
+                'customer_name' => $customer?->name ?? $data['customer_name'] ?? null,
+                'customer_phone' => $customer?->phone ?? $data['customer_phone'] ?? null,
                 'branch_id' => $branchService->branch_id,
                 'service_id' => $branchService->service_id,
                 'status' => AppointmentStatus::Confirmed,
@@ -136,16 +136,16 @@ class AppointmentService extends BaseService
 
             Gate::forUser($user)->authorize('manage', $appointment);
 
-            if (in_array($appointment->status, [
-                AppointmentStatus::Completed,
-                AppointmentStatus::Cancelled,
+            if (! in_array($appointment->status, [
+                AppointmentStatus::Pending,
+                AppointmentStatus::Confirmed,
             ], true)) {
                 throw ValidationException::withMessages([
-                    'status' => ['Không thể phân công kỹ thuật viên cho lịch hẹn đã kết thúc!'],
+                    'status' => ['Chỉ có thể phân công kỹ thuật viên cho lịch hẹn đang chờ hoặc đã xác nhận!'],
                 ]);
             }
 
-            $technician = $this->appointments->findTechnicianForBranch(
+            $technician = $this->appointments->lockTechnicianForBranch(
                 $technicianId,
                 $appointment->branch_id,
             );
@@ -158,6 +158,17 @@ class AppointmentService extends BaseService
 
             if ($appointment->technician_id === $technician->id) {
                 return $this->appointments->loadDetails($appointment);
+            }
+
+            if ($this->appointments->technicianHasOverlap(
+                $technician->id,
+                $appointment->starts_at,
+                $appointment->ends_at,
+                $appointment->id,
+            )) {
+                throw ValidationException::withMessages([
+                    'technician_id' => ['Kỹ thuật viên đã có lịch hẹn trùng với khung giờ này!'],
+                ]);
             }
 
             return $this->appointments->assignTechnician($appointment, $technician);
@@ -266,10 +277,19 @@ class AppointmentService extends BaseService
                 ]);
             }
 
-            if ($requiresTechnician && $appointment->technician_id === null) {
-                throw ValidationException::withMessages([
-                    'technician_id' => ['Vui lòng phân công kỹ thuật viên trước khi bắt đầu!'],
-                ]);
+            if ($requiresTechnician) {
+                $technician = $appointment->technician_id === null
+                    ? null
+                    : $this->appointments->lockTechnicianForBranch(
+                        $appointment->technician_id,
+                        $appointment->branch_id,
+                    );
+
+                if ($technician === null) {
+                    throw ValidationException::withMessages([
+                        'technician_id' => ['Vui lòng phân công kỹ thuật viên hợp lệ trước khi bắt đầu!'],
+                    ]);
+                }
             }
 
             return $this->appointments->updateStatus($appointment, $target, $staffNote);
