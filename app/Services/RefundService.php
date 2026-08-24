@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Repositories\OrderRepository;
 use App\Repositories\RefundRepository;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
@@ -22,12 +23,11 @@ class RefundService extends BaseService
     public function __construct(
         private readonly RefundRepository $refunds,
         private readonly OrderRepository $orders,
-    ) {
-    }
+    ) {}
 
     /**
-     * @param array{reason_type: string, reason?: string|null} $data
-     * @param array<int, UploadedFile> $evidence
+     * @param  array{reason_type: string, reason?: string|null}  $data
+     * @param  array<int, UploadedFile>  $evidence
      */
     public function request(User $user, int $orderId, array $data, array $evidence): ?Refund
     {
@@ -86,6 +86,12 @@ class RefundService extends BaseService
                     'evidence_paths' => $paths,
                 ]);
             });
+        } catch (UniqueConstraintViolationException) {
+            if ($paths !== []) {
+                $disk->delete($paths);
+            }
+
+            $this->refundError('Đơn hàng đã có yêu cầu hoàn tiền');
         } catch (Throwable $exception) {
             if ($paths !== []) {
                 $disk->delete($paths);

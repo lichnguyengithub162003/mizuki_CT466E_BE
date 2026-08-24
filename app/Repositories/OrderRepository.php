@@ -83,6 +83,7 @@ class OrderRepository extends BaseRepository
             'promotion:id,code,name',
             'userAddress',
             'shipment',
+            'refunds' => fn (Builder|HasMany $query): Builder|HasMany => $query->orderByDesc('id'),
             'items' => fn (Builder|HasMany $query): Builder|HasMany => $query->orderBy('id'),
         ]);
     }

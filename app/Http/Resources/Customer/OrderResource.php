@@ -11,6 +11,8 @@ class OrderResource extends JsonResource
     /** @return array<string, mixed> */
     public function toArray(Request $request): array
     {
+        $refund = $this->refunds->first();
+
         return [
             'id' => $this->id,
             'order_number' => $this->order_number,
@@ -68,10 +70,32 @@ class OrderResource extends JsonResource
                 'reason' => $this->cancellation_reason,
                 'cancelled_at' => $this->cancelled_at?->toISOString(),
             ],
+            'refund' => $refund === null ? null : [
+                'id' => $refund->id,
+                'refund_number' => $refund->refund_number,
+                'status' => $refund->status,
+                'status_label' => $this->refundStatusLabel((string) $refund->status),
+                'requested_amount' => $refund->requested_amount,
+                'approved_amount' => $refund->approved_amount,
+                'review_note' => $refund->review_note,
+                'reviewed_at' => $refund->reviewed_at?->toISOString(),
+                'refunded_at' => $refund->refunded_at?->toISOString(),
+            ],
             'placed_at' => $this->placed_at?->toISOString(),
             'cancelled_at' => $this->cancelled_at?->toISOString(),
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
         ];
+    }
+
+    private function refundStatusLabel(string $status): string
+    {
+        return match ($status) {
+            'requested' => 'Chờ duyệt',
+            'approved' => 'Đã duyệt',
+            'rejected' => 'Đã từ chối',
+            'refunded' => 'Đã hoàn tiền',
+            default => $status,
+        };
     }
 }
