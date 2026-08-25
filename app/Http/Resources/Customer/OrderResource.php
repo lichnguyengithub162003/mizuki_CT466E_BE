@@ -2,7 +2,9 @@
 
 namespace App\Http\Resources\Customer;
 
+use App\Enums\OrderStatus;
 use App\Models\OrderItem;
+use App\Models\Review;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -60,6 +62,8 @@ class OrderResource extends JsonResource
                 'unit_price' => $item->unit_price,
                 'quantity' => $item->quantity,
                 'line_total' => $item->line_total,
+                'can_review' => $this->canReviewItem($item),
+                'review' => $this->reviewData($item->review),
             ])->values()->all(),
             'subtotal' => $this->subtotal,
             'discount_amount' => $this->discount_amount,
@@ -97,5 +101,35 @@ class OrderResource extends JsonResource
             'refunded' => 'Đã hoàn tiền',
             default => $status,
         };
+    }
+
+    private function canReviewItem(OrderItem $item): bool
+    {
+        $eligibleOrder = $this->channel === 'counter'
+            ? $this->status === OrderStatus::Confirmed
+            : $this->status === OrderStatus::Delivered;
+        $product = $item->productVariant?->product;
+
+        return $eligibleOrder
+            && $product !== null
+            && $product->reviews->isEmpty();
+    }
+
+    /** @return array<string, mixed>|null */
+    private function reviewData(?Review $review): ?array
+    {
+        if ($review === null || $review->trashed()) {
+            return null;
+        }
+
+        return [
+            'id' => $review->id,
+            'rating' => (int) $review->rating,
+            'title' => $review->title,
+            'comment' => $review->comment,
+            'is_visible' => (bool) $review->is_visible,
+            'reviewed_at' => $review->created_at?->toISOString(),
+            'updated_at' => $review->updated_at?->toISOString(),
+        ];
     }
 }

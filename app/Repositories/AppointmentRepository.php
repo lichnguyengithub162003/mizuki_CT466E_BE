@@ -11,6 +11,7 @@ use App\Models\User;
 use Carbon\CarbonInterface;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
@@ -104,6 +105,7 @@ class AppointmentRepository extends BaseRepository
                 'branch:id,name,code,branch_type',
                 'service:id,name,slug',
                 'technician:id,name',
+                'review' => fn (HasOne $review): HasOne => $review->withTrashed(),
             ])
             ->orderByDesc('created_at')
             ->orderByDesc('id')
@@ -300,7 +302,7 @@ class AppointmentRepository extends BaseRepository
         return $this->loadDetails($appointment->refresh());
     }
 
-    /** @return array<int, string> */
+    /** @return array<int|string, mixed> */
     private function detailRelations(): array
     {
         return [
@@ -308,6 +310,7 @@ class AppointmentRepository extends BaseRepository
             'branch:id,name,code,branch_type',
             'service:id,name,slug',
             'technician:id,name,branch_id',
+            'review' => fn (HasOne $review): HasOne => $review->withTrashed(),
         ];
     }
 
