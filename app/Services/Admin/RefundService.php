@@ -2,6 +2,7 @@
 
 namespace App\Services\Admin;
 
+use App\Enums\PaymentStatus;
 use App\Enums\WalletTransactionDirection;
 use App\Enums\WalletTransactionType;
 use App\Models\Refund;
@@ -73,12 +74,18 @@ class RefundService extends BaseService
                 ]);
             }
 
-            return $this->refunds->approve(
+            $approved = $this->refunds->approve(
                 refund: $refund,
                 approvedAmount: $approvedAmount,
                 reviewerId: $user->id,
                 reviewNote: $data['review_note'] ?? null,
             );
+
+            if ($approved->order->payment?->status !== PaymentStatus::Paid) {
+                return $this->refunds->closeWithoutPayout($approved);
+            }
+
+            return $approved;
         });
     }
 
@@ -170,6 +177,12 @@ class RefundService extends BaseService
         if ($refund->approved_amount === null || $refund->approved_amount <= 0) {
             throw ValidationException::withMessages([
                 'approved_amount' => ['Số tiền được duyệt phải lớn hơn 0'],
+            ]);
+        }
+
+        if ($refund->order->payment?->status !== PaymentStatus::Paid) {
+            throw ValidationException::withMessages([
+                'payment' => ['Đơn hàng chưa thanh toán nên không thể chi trả hoàn tiền vào ví'],
             ]);
         }
     }

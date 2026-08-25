@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Admin;
 
 use App\Enums\OrderRequestReason;
+use App\Enums\PaymentStatus;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\Storage;
@@ -13,13 +14,18 @@ class RefundResource extends JsonResource
     public function toArray(Request $request): array
     {
         $disk = Storage::disk((string) config('filesystems.refund_evidence_disk', 'public'));
+        $nextAction = $this->status === 'approved'
+            && $this->order->payment?->status === PaymentStatus::Paid
+            ? 'wallet_payout'
+            : null;
 
         return [
             'id' => $this->id,
             'refund_number' => $this->refund_number,
             'status' => $this->status,
             'status_label' => $this->statusLabel((string) $this->status),
-            'allowed_actions' => $this->allowedActions((string) $this->status),
+            'allowed_actions' => $this->allowedActions((string) $this->status, $nextAction),
+            'next_action' => $nextAction,
             'order' => [
                 'id' => $this->order->id,
                 'order_number' => $this->order->order_number,
@@ -78,11 +84,11 @@ class RefundResource extends JsonResource
     }
 
     /** @return array<int, string> */
-    private function allowedActions(string $status): array
+    private function allowedActions(string $status, ?string $nextAction): array
     {
         return match ($status) {
             'requested' => ['approve', 'reject'],
-            'approved' => ['wallet_payout'],
+            'approved' => $nextAction === null ? [] : [$nextAction],
             default => [],
         };
     }

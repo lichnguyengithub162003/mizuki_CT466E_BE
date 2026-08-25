@@ -184,12 +184,25 @@ class RefundRepository extends BaseRepository
             ?? $refund->refresh();
     }
 
+    public function closeWithoutPayout(Refund $refund): Refund
+    {
+        $refund->fill([
+            'status' => 'refunded',
+            'wallet_transaction_id' => null,
+            'refunded_at' => now(),
+        ])->save();
+
+        return $this->findForAdmin($refund->id, UserRole::SuperAdmin, null)
+            ?? $refund->refresh();
+    }
+
     /** @return array<int, string> */
     private function adminRelations(): array
     {
         return [
-            'order:id,order_number,user_id,branch_id,status,total_amount',
+            'order:id,order_number,user_id,branch_id,payment_method,status,total_amount',
             'order.branch:id,name',
+            'order.payment:id,order_id,status',
             'user:id,name,email,phone',
             'reviewedBy:id,name',
             'walletTransaction',
