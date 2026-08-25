@@ -16,6 +16,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Promotion;
 use App\Models\PromotionUsage;
+use App\Models\Review;
 use App\Models\Shipment;
 use App\Models\User;
 use App\Models\UserAddress;
@@ -617,4 +618,66 @@ test('customer order detail preserves delivery snapshot and exposes shipment tra
         ->assertJsonPath('data.shipment.provider', 'ghn')
         ->assertJsonPath('data.shipment.tracking_code', 'GHNTEST123')
         ->assertJsonPath('data.shipment.status', 'in_transit');
+});
+
+test('customer order detail exposes backend derived product review eligibility', function (): void {
+    $context = createOrderCheckoutContext(false);
+    $order = createExistingCustomerOrder($context['user'], $context['branch'], [
+        'status' => OrderStatus::Delivered,
+    ]);
+    $item = $order->items()->create([
+        'product_variant_id' => $context['variant']->id,
+        'product_name' => $context['variant']->product->name,
+        'variant_name' => $context['variant']->name,
+        'sku' => $context['variant']->sku,
+        'variant_attributes' => $context['variant']->attributes,
+        'unit_price' => 100_000,
+        'quantity' => 1,
+        'line_total' => 100_000,
+    ]);
+    $this->actingAs($context['user']);
+
+    $this->getJson("/api/v1/customer/orders/{$order->id}")
+        ->assertOk()
+        ->assertJsonPath('data.items.0.id', $item->id)
+        ->assertJsonPath('data.items.0.can_review', true)
+        ->assertJsonPath('data.items.0.review', null);
+
+    $review = Review::query()->create([
+        'user_id' => $context['user']->id,
+        'product_id' => $context['variant']->product_id,
+        'product_variant_id' => $context['variant']->id,
+        'order_item_id' => $item->id,
+        'rating' => 5,
+        'title' => 'Rất tốt',
+        'comment' => 'Sản phẩm phù hợp',
+        'is_visible' => true,
+    ]);
+
+    $this->getJson("/api/v1/customer/orders/{$order->id}")
+        ->assertOk()
+        ->assertJsonPath('data.items.0.can_review', false)
+        ->assertJsonPath('data.items.0.review.id', $review->id)
+        ->assertJsonPath('data.items.0.review.rating', 5)
+        ->assertJsonPath('data.items.0.review.title', 'Rất tốt');
+
+    $secondOrder = createExistingCustomerOrder($context['user'], $context['branch'], [
+        'status' => OrderStatus::Delivered,
+    ]);
+    $secondItem = $secondOrder->items()->create([
+        'product_variant_id' => $context['variant']->id,
+        'product_name' => $context['variant']->product->name,
+        'variant_name' => $context['variant']->name,
+        'sku' => $context['variant']->sku,
+        'variant_attributes' => $context['variant']->attributes,
+        'unit_price' => 100_000,
+        'quantity' => 1,
+        'line_total' => 100_000,
+    ]);
+
+    $this->getJson("/api/v1/customer/orders/{$secondOrder->id}")
+        ->assertOk()
+        ->assertJsonPath('data.items.0.id', $secondItem->id)
+        ->assertJsonPath('data.items.0.can_review', false)
+        ->assertJsonPath('data.items.0.review', null);
 });

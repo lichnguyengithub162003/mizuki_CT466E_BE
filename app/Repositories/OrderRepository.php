@@ -10,7 +10,9 @@ use App\Models\Shipment;
 use App\Models\UserAddress;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
@@ -85,6 +87,12 @@ class OrderRepository extends BaseRepository
             'shipment',
             'refunds' => fn (Builder|HasMany $query): Builder|HasMany => $query->orderByDesc('id'),
             'items' => fn (Builder|HasMany $query): Builder|HasMany => $query->orderBy('id'),
+            'items.review' => fn (HasOne $review): HasOne => $review->withTrashed(),
+            'items.productVariant' => fn (BelongsTo $variant): BelongsTo => $variant->withTrashed(),
+            'items.productVariant.product' => fn (BelongsTo $product): BelongsTo => $product->withTrashed(),
+            'items.productVariant.product.reviews' => fn (HasMany $reviews): HasMany => $reviews
+                ->withTrashed()
+                ->where('user_id', $order->user_id),
         ]);
     }
 

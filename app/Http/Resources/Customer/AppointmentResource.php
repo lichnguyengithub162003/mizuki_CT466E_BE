@@ -2,6 +2,8 @@
 
 namespace App\Http\Resources\Customer;
 
+use App\Enums\AppointmentStatus;
+use App\Models\Review;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -11,6 +13,7 @@ class AppointmentResource extends JsonResource
     public function toArray(Request $request): array
     {
         $timezone = (string) config('app.timezone');
+        $review = $this->review;
 
         return [
             'id' => $this->id,
@@ -38,10 +41,31 @@ class AppointmentResource extends JsonResource
             'ends_at' => $this->ends_at?->setTimezone($timezone)->toIso8601String(),
             'customer_note' => $this->customer_note,
             'staff_note' => $this->staff_note,
+            'can_review' => $this->status === AppointmentStatus::Completed
+                && $review === null,
+            'review' => $this->reviewData($review),
             'cancelled_at' => $this->cancelled_at?->setTimezone($timezone)->toIso8601String(),
             'completed_at' => $this->completed_at?->setTimezone($timezone)->toIso8601String(),
             'created_at' => $this->created_at?->setTimezone($timezone)->toIso8601String(),
             'updated_at' => $this->updated_at?->setTimezone($timezone)->toIso8601String(),
+        ];
+    }
+
+    /** @return array<string, mixed>|null */
+    private function reviewData(?Review $review): ?array
+    {
+        if ($review === null || $review->trashed()) {
+            return null;
+        }
+
+        return [
+            'id' => $review->id,
+            'rating' => (int) $review->rating,
+            'title' => $review->title,
+            'comment' => $review->comment,
+            'is_visible' => (bool) $review->is_visible,
+            'reviewed_at' => $review->created_at?->toISOString(),
+            'updated_at' => $review->updated_at?->toISOString(),
         ];
     }
 }

@@ -7,6 +7,7 @@ use App\Models\Appointment;
 use App\Models\Branch;
 use App\Models\BranchBusinessHour;
 use App\Models\BranchService;
+use App\Models\Review;
 use App\Models\Service;
 use App\Models\User;
 use Carbon\Carbon;
@@ -276,6 +277,44 @@ test('customer can view own detail but another customer receives 404', function 
     $this->actingAs($other)
         ->getJson("/api/v1/customer/appointments/{$appointment->id}")
         ->assertNotFound();
+});
+
+test('customer appointment responses expose service review eligibility and existing review', function (): void {
+    $appointment = createBookedAppointment(
+        $this->customer,
+        $this->branch,
+        $this->service,
+        [
+            'status' => AppointmentStatus::Completed,
+            'completed_at' => now(),
+        ],
+    );
+    $this->actingAs($this->customer);
+
+    $this->getJson("/api/v1/customer/appointments/{$appointment->id}")
+        ->assertOk()
+        ->assertJsonPath('data.can_review', true)
+        ->assertJsonPath('data.review', null);
+
+    $review = Review::query()->create([
+        'user_id' => $this->customer->id,
+        'product_id' => null,
+        'service_id' => $this->service->id,
+        'appointment_id' => $appointment->id,
+        'rating' => 4,
+        'title' => 'Dịch vụ tốt',
+        'comment' => 'Nhân viên chu đáo',
+        'is_visible' => true,
+    ]);
+
+    $this->getJson('/api/v1/customer/appointments?status=completed')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $appointment->id)
+        ->assertJsonPath('data.0.can_review', false)
+        ->assertJsonPath('data.0.review.id', $review->id)
+        ->assertJsonPath('data.0.review.rating', 4)
+        ->assertJsonPath('data.0.review.title', 'Dịch vụ tốt');
 });
 
 test('customer can cancel pending and confirmed appointments', function (AppointmentStatus $status): void {
