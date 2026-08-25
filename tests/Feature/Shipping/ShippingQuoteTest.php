@@ -23,12 +23,14 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
     Cache::flush();
+    $this->withHeader('Idempotency-Key', 'shipping-test-'.Str::uuid());
     config()->set([
         'services.ghn.base_url' => 'https://ghn.test/shiip/public-api',
         'services.ghn.token' => 'shipping-test-token',
@@ -201,6 +203,113 @@ test('authenticated customer obtains an authoritative opaque shipping quote', fu
         && $request['items'][0]['quantity'] === 2
         && $request['insurance_value'] === 300000
     );
+});
+
+test('shipping quote uses the GHN leadtime endpoint when the fee response has no ETA', function (): void {
+    $context = createShippingQuoteContext();
+    $leadtime = 1_787_652_000;
+    Http::fake(function (Request $request) use ($leadtime) {
+        if (str_ends_with($request->url(), '/v2/shipping-order/available-services')) {
+            return Http::response(['code' => 200, 'data' => [[
+                'service_id' => 53320,
+                'short_name' => 'Light',
+                'service_type_id' => 2,
+            ]]]);
+        }
+
+        if (str_ends_with($request->url(), '/v2/shipping-order/fee')) {
+            return Http::response(['code' => 200, 'data' => ['total' => 30_000]]);
+        }
+
+        if (str_ends_with($request->url(), '/v2/shipping-order/leadtime')) {
+            return Http::response(['code' => 200, 'data' => ['leadtime' => $leadtime]]);
+        }
+
+        return Http::response(['code' => 404, 'data' => []], 404);
+    });
+    $this->actingAs($context['user']);
+
+    $this->postJson('/api/v1/customer/shipping/quote', [
+        'address_id' => $context['address']->id,
+    ])->assertOk()->assertJsonPath(
+        'data.expected_delivery_time',
+        CarbonImmutable::createFromTimestamp($leadtime)->toISOString(),
+    );
+
+    Http::assertSentCount(3);
+});
+
+test('shipping quote remains usable and logs normalized context when GHN leadtime fails', function (): void {
+    $context = createShippingQuoteContext();
+    Log::spy();
+    Http::fake(function (Request $request) {
+        if (str_ends_with($request->url(), '/v2/shipping-order/available-services')) {
+            return Http::response(['code' => 200, 'data' => [[
+                'service_id' => 53320,
+                'short_name' => 'Light',
+                'service_type_id' => 2,
+            ]]]);
+        }
+
+        if (str_ends_with($request->url(), '/v2/shipping-order/fee')) {
+            return Http::response(['code' => 200, 'data' => ['total' => 30_000]]);
+        }
+
+        return Http::response(['code' => 'LEADTIME_DOWN', 'data' => []], 503);
+    });
+    $this->actingAs($context['user']);
+
+    $this->postJson('/api/v1/customer/shipping/quote', [
+        'address_id' => $context['address']->id,
+    ])->assertOk()
+        ->assertJsonPath('data.shipping_fee', 30_000)
+        ->assertJsonPath('data.expected_delivery_time', null);
+
+    Log::shouldHaveReceived('warning')->once()->withArgs(
+        fn (string $message, array $contextData): bool => $message
+            === 'GHN leadtime unavailable for shipping quote'
+            && $contextData['operation'] === 'calculate_shipping_leadtime'
+            && $contextData['provider_code'] === 'LEADTIME_DOWN'
+            && $contextData['branch_id'] === $context['branch']->id
+            && $contextData['address_id'] === $context['address']->id
+            && $contextData['service_id'] === 53320,
+    );
+});
+
+test('delivery preview and order creation share authoritative totals without consuming the quote early', function (): void {
+    $context = createShippingQuoteContext();
+    fakeShippingQuoteGhn(30_000);
+    $this->actingAs($context['user']);
+    $token = $this->postJson('/api/v1/customer/shipping/quote', [
+        'address_id' => $context['address']->id,
+    ])->assertOk()->json('data.quote_token');
+    $payload = [
+        'delivery_method' => 'delivery',
+        'address_id' => $context['address']->id,
+        'shipping_quote_token' => $token,
+        'payment_method' => 'vnpay',
+    ];
+
+    $preview = $this->postJson('/api/v1/customer/orders/preview', $payload)
+        ->assertOk()
+        ->assertJsonPath('data.subtotal', 300_000)
+        ->assertJsonPath('data.discount_amount', 0)
+        ->assertJsonPath('data.shipping_fee', 30_000)
+        ->assertJsonPath('data.total_amount', 330_000)
+        ->assertJsonPath('data.expected_delivery_time', '2026-08-03T23:59:59+07:00');
+
+    expect(Cache::has(shippingQuoteCacheKey($token)))->toBeTrue();
+    $this->assertDatabaseCount('orders', 0);
+
+    $order = $this->postJson('/api/v1/customer/orders', $payload)
+        ->assertCreated()
+        ->assertJsonPath('data.subtotal', $preview->json('data.subtotal'))
+        ->assertJsonPath('data.discount_amount', $preview->json('data.discount_amount'))
+        ->assertJsonPath('data.shipping_fee', $preview->json('data.shipping_fee'))
+        ->assertJsonPath('data.total_amount', $preview->json('data.total_amount'));
+
+    expect($order->json('data.total_amount'))->toBe(330_000)
+        ->and(Cache::has(shippingQuoteCacheKey($token)))->toBeFalse();
 });
 
 test('shipping quote requires authentication and customer role', function (): void {

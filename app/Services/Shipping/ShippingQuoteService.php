@@ -11,6 +11,7 @@ use App\Repositories\UserAddressRepository;
 use App\Services\CartService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use JsonException;
 
@@ -49,6 +50,28 @@ class ShippingQuoteService
                 package: $package,
                 service: $service,
             ));
+            $expectedDeliveryTime = $fee['expected_delivery_time'] ?? null;
+
+            if ($expectedDeliveryTime === null || $expectedDeliveryTime === '') {
+                try {
+                    $expectedDeliveryTime = $this->ghn->calculateExpectedDeliveryTime([
+                        'from_district_id' => $branch->ghn_district_id,
+                        'from_ward_code' => $branch->ghn_ward_code,
+                        'to_district_id' => $address->ghn_district_id,
+                        'to_ward_code' => $address->ghn_ward_code,
+                        'service_id' => $service['service_id'],
+                    ]);
+                } catch (GhnApiException $exception) {
+                    Log::warning('GHN leadtime unavailable for shipping quote', [
+                        'operation' => $exception->operation,
+                        'provider_code' => $exception->providerCode,
+                        'branch_id' => $branch->id,
+                        'address_id' => $address->id,
+                        'service_id' => $service['service_id'],
+                    ]);
+                    $expectedDeliveryTime = null;
+                }
+            }
         } catch (GhnApiException) {
             throw ValidationException::withMessages([
                 'shipping' => ['Không thể lấy phí vận chuyển từ GHN lúc này. Vui lòng thử lại!'],
@@ -68,7 +91,7 @@ class ShippingQuoteService
             'service_type_id' => $service['service_type_id'],
             'shipping_fee' => $fee['total'],
             'fee_breakdown' => $this->feeBreakdown($fee),
-            'expected_delivery_time' => $fee['expected_delivery_time'] ?? null,
+            'expected_delivery_time' => $expectedDeliveryTime,
             'expires_at' => $expiresAt->toISOString(),
         ];
 

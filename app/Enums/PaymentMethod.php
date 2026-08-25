@@ -9,6 +9,12 @@ enum PaymentMethod: string
     case Cash = 'cash';
     case BankTransfer = 'bank_transfer';
 
+    /** @return list<self> */
+    public static function customerCheckoutMethods(): array
+    {
+        return [self::Cash, self::Wallet, self::VNPay];
+    }
+
     public function label(): string
     {
         return match ($this) {
