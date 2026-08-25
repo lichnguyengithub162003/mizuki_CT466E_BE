@@ -104,6 +104,7 @@ test('super admin pays an approved refund into a lazily created wallet idempoten
     $customer = User::factory()->create(['role' => UserRole::Customer]);
     $admin = User::factory()->create(['role' => UserRole::SuperAdmin]);
     $order = createAdminManagedOrder($branch, $customer, OrderStatus::Delivered);
+    app(PaymentService::class)->createForOrder($order, PaymentStatus::Paid);
     $originalOrderStatus = $order->status;
     $refund = createAdminManagedRefund($order, $customer, 'approved');
     $refund->update([
@@ -162,10 +163,11 @@ test('branch manager can payout only refunds from their own branch', function ()
         'branch_id' => $ownBranch->id,
     ]);
     $ownRefund = createAdminManagedRefund(
-        createAdminManagedOrder($ownBranch, $customer, OrderStatus::Delivered),
+        $ownOrder = createAdminManagedOrder($ownBranch, $customer, OrderStatus::Delivered),
         $customer,
         'approved',
     );
+    app(PaymentService::class)->createForOrder($ownOrder, PaymentStatus::Paid);
     $ownRefund->update(['approved_amount' => 100_000]);
     $otherRefund = createAdminManagedRefund(
         createAdminManagedOrder($otherBranch, $customer, OrderStatus::Delivered),
@@ -229,8 +231,10 @@ test('wallet payout rolls back the balance when ledger creation fails', function
     $branch = createOrderAdminBranch('WR');
     $customer = User::factory()->create(['role' => UserRole::Customer]);
     $wallet = Wallet::query()->create(['user_id' => $customer->id, 'balance' => 25_000]);
+    $order = createAdminManagedOrder($branch, $customer, OrderStatus::Delivered);
+    app(PaymentService::class)->createForOrder($order, PaymentStatus::Paid);
     $refund = createAdminManagedRefund(
-        createAdminManagedOrder($branch, $customer, OrderStatus::Delivered),
+        $order,
         $customer,
         'approved',
     );
@@ -525,6 +529,7 @@ test('admin approves requested refund with default amount and stores reviewer me
         ->assertJsonPath('data.status', 'approved')
         ->assertJsonPath('data.status_label', 'Đã duyệt')
         ->assertJsonPath('data.allowed_actions', ['wallet_payout'])
+        ->assertJsonPath('data.next_action', 'wallet_payout')
         ->assertJsonPath('data.approved_amount', 300_000)
         ->assertJsonPath('data.reviewer.id', $admin->id);
 
@@ -538,6 +543,33 @@ test('admin approves requested refund with default amount and stores reviewer me
     $this->postJson("/api/v1/admin/refunds/{$refund->id}/approve")
         ->assertUnprocessable()
         ->assertJsonPath('data.errors.status.0', 'Yêu cầu hoàn tiền đã được xử lý');
+});
+
+test('admin closes an unpaid refund without creating a wallet payout', function (): void {
+    $branch = createOrderAdminBranch('NP');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    $order = createAdminManagedOrder($branch, $customer, OrderStatus::Delivered);
+    $refund = createAdminManagedRefund($order, $customer);
+    $this->actingAs(User::factory()->create(['role' => UserRole::SuperAdmin]));
+
+    $this->postJson("/api/v1/admin/refunds/{$refund->id}/approve")
+        ->assertOk()
+        ->assertJsonPath('data.status', 'refunded')
+        ->assertJsonPath('data.allowed_actions', [])
+        ->assertJsonPath('data.next_action', null)
+        ->assertJsonPath('data.wallet_transaction', null);
+
+    expect($refund->refresh()->wallet_transaction_id)->toBeNull()
+        ->and($refund->refunded_at)->not->toBeNull();
+    $this->assertDatabaseCount('wallet_transactions', 0);
+    $this->assertDatabaseCount('wallets', 0);
+
+    $this->postJson("/api/v1/admin/refunds/{$refund->id}/wallet-payout")
+        ->assertUnprocessable()
+        ->assertJsonPath(
+            'data.errors.payment.0',
+            'Đơn hàng chưa thanh toán nên không thể chi trả hoàn tiền vào ví',
+        );
 });
 
 test('admin rejects requested refund and cannot process it again', function (): void {
