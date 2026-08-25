@@ -3,6 +3,7 @@
 use App\Exceptions\Shipping\GhnApiException;
 use App\Services\Shipping\GhnAddressService;
 use App\Services\Shipping\GhnClient;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
@@ -392,6 +393,31 @@ test('shipping fee sends ShopId and extracts validated numeric fee fields', func
         && $request->hasHeader('ShopId', '123456')
         && $request['service_id'] === 53320
         && $request['weight'] === 500);
+});
+
+test('shipping leadtime returns an ISO expected delivery time', function (): void {
+    $leadtime = 1_787_652_000;
+    Http::fake(['*' => Http::response(ghnSuccess([
+        'leadtime' => $leadtime,
+        'order_date' => '2026-08-25T09:00:00Z',
+    ]))]);
+
+    $expectedDeliveryTime = app(GhnClient::class)->calculateExpectedDeliveryTime([
+        'from_district_id' => 1442,
+        'from_ward_code' => '21012',
+        'to_district_id' => 1444,
+        'to_ward_code' => '21010',
+        'service_id' => 53320,
+    ]);
+
+    expect($expectedDeliveryTime)
+        ->toBe(CarbonImmutable::createFromTimestamp($leadtime)->toISOString());
+    Http::assertSent(fn (Request $request): bool => $request->url()
+        === 'https://ghn.test/api/v2/shipping-order/leadtime'
+        && $request->hasHeader('ShopId', '123456')
+        && $request['from_district_id'] === 1442
+        && $request['to_ward_code'] === '21010'
+        && $request['service_id'] === 53320);
 });
 
 test('shipping operations reject malformed service and fee data safely', function (string $operation): void {

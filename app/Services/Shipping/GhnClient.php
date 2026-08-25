@@ -3,6 +3,7 @@
 namespace App\Services\Shipping;
 
 use App\Exceptions\Shipping\GhnApiException;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
@@ -166,6 +167,26 @@ class GhnClient
             : trim((string) $expectedDeliveryTime);
 
         return $normalized;
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function calculateExpectedDeliveryTime(array $payload): string
+    {
+        $data = $this->request(
+            operation: 'calculate_shipping_leadtime',
+            method: 'POST',
+            endpoint: 'v2/shipping-order/leadtime',
+            payload: $payload,
+            requiresShopId: true,
+            safeToRetry: true,
+        );
+        $leadtime = $data['leadtime'] ?? null;
+
+        if (! $this->isPositiveInteger($leadtime)) {
+            throw new GhnApiException('calculate_shipping_leadtime', providerCode: 'malformed_data');
+        }
+
+        return CarbonImmutable::createFromTimestamp((int) $leadtime)->toISOString();
     }
 
     /**

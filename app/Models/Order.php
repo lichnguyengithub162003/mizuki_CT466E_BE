@@ -12,6 +12,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'order_number',
+    'checkout_idempotency_key_hash',
+    'checkout_request_hash',
     'user_id',
     'customer_name',
     'customer_phone',

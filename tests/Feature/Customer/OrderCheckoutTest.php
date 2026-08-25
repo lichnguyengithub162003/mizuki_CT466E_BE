@@ -23,12 +23,17 @@ use App\Models\UserAddress;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use App\Services\PaymentService;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 uses(RefreshDatabase::class);
+
+beforeEach(function (): void {
+    $this->withHeader('Idempotency-Key', 'checkout-test-'.Str::uuid());
+});
 
 /** @return array{user: User, branch: Branch, cart: Cart, variant: ProductVariant, inventory: BranchInventory} */
 function createOrderCheckoutContext(bool $withItem = true, bool $selectBranch = true): array
@@ -114,6 +119,54 @@ function createExistingCustomerOrder(User $user, Branch $branch, array $override
         'placed_at' => now(),
     ], $overrides));
 }
+
+test('checkout preview returns authoritative pickup totals without creating an order', function (): void {
+    $context = createOrderCheckoutContext();
+    $promotion = Promotion::query()->create([
+        'code' => 'PREVIEW10',
+        'name' => 'Preview 10%',
+        'discount_type' => 'percentage',
+        'discount_value' => 10,
+        'max_discount_amount' => 100_000,
+        'minimum_order_amount' => 100_000,
+        'usage_limit' => 100,
+        'usage_count' => 0,
+        'per_user_limit' => 1,
+        'applies_to' => 'order',
+        'starts_at' => now()->subDay(),
+        'ends_at' => now()->addDay(),
+        'is_active' => true,
+    ]);
+    $promotion->branches()->attach($context['branch']->id);
+    $context['cart']->update(['promotion_id' => $promotion->id]);
+    $this->actingAs($context['user']);
+
+    $this->postJson('/api/v1/customer/orders/preview', [
+        'delivery_method' => 'pickup',
+        'payment_method' => 'cash',
+    ])->assertOk()
+        ->assertJsonPath('data.delivery_method', 'pickup')
+        ->assertJsonPath('data.branch.id', $context['branch']->id)
+        ->assertJsonPath('data.address_id', null)
+        ->assertJsonPath('data.promotion.code', 'PREVIEW10')
+        ->assertJsonPath('data.subtotal', 300_000)
+        ->assertJsonPath('data.discount_amount', 30_000)
+        ->assertJsonPath('data.shipping_fee', 0)
+        ->assertJsonPath('data.total_amount', 270_000)
+        ->assertJsonPath('data.expected_delivery_time', null)
+        ->assertJsonPath('data.payment_methods.0.value', 'cash')
+        ->assertJsonPath('data.payment_methods.1.value', 'wallet')
+        ->assertJsonPath('data.payment_methods.2.value', 'vnpay')
+        ->assertJsonPath('data.selected_payment_method', 'cash');
+
+    $this->assertDatabaseCount('orders', 0);
+    $this->assertDatabaseCount('payments', 0);
+    $this->assertDatabaseCount('promotion_usages', 0);
+    $this->assertDatabaseCount('cart_items', 1);
+    expect($promotion->refresh()->usage_count)->toBe(0)
+        ->and($context['inventory']->refresh()->reserved_quantity)->toBe(1);
+    Http::assertNothingSent();
+});
 
 test('customer can create an order from a valid cart and cart items are cleared', function (): void {
     $context = createOrderCheckoutContext();
@@ -343,28 +396,93 @@ test('wallet checkout with insufficient balance rolls back every checkout write'
         ->and($context['cart']->refresh()->promotion_id)->toBe($promotion->id);
 });
 
-test('repeating wallet checkout from the same cleared cart creates no duplicate', function (): void {
+test('repeating checkout with the same idempotency key returns the original order', function (): void {
     $context = createOrderCheckoutContext();
+    $idempotencyKey = 'retry-'.Str::uuid();
     $wallet = Wallet::query()->create([
         'user_id' => $context['user']->id,
         'balance' => 700_000,
     ]);
-    $this->actingAs($context['user']);
+    Event::fake([OrderPlaced::class]);
+    $this->actingAs($context['user'])
+        ->withHeader('Idempotency-Key', $idempotencyKey);
     $payload = [
         'delivery_method' => 'pickup',
         'payment_method' => 'wallet',
     ];
 
-    $this->postJson('/api/v1/customer/orders', $payload)->assertCreated();
-    $this->postJson('/api/v1/customer/orders', $payload)
-        ->assertUnprocessable()
-        ->assertJsonPath('data.errors.cart.0', 'Giỏ hàng đang trống');
+    $first = $this->postJson('/api/v1/customer/orders', $payload)->assertCreated();
+    $second = $this->postJson('/api/v1/customer/orders', $payload)->assertCreated();
 
-    expect($wallet->refresh()->balance)->toBe(400_000)
+    expect($second->json('data.id'))->toBe($first->json('data.id'))
+        ->and($second->json('data.order_number'))->toBe($first->json('data.order_number'))
+        ->and($wallet->refresh()->balance)->toBe(400_000)
         ->and($context['inventory']->refresh()->reserved_quantity)->toBe(3);
     $this->assertDatabaseCount('orders', 1);
     $this->assertDatabaseCount('payments', 1);
     $this->assertDatabaseCount('wallet_transactions', 1);
+    $this->assertDatabaseHas('orders', [
+        'id' => $first->json('data.id'),
+        'checkout_idempotency_key_hash' => hash('sha256', $idempotencyKey),
+    ]);
+    Event::assertDispatchedTimes(OrderPlaced::class, 1);
+});
+
+test('database uniqueness closes the concurrent checkout idempotency race', function (): void {
+    $context = createOrderCheckoutContext(false);
+    $keyHash = hash('sha256', 'concurrent-'.Str::uuid());
+    $requestHash = hash('sha256', 'same-checkout-payload');
+
+    // Model two workers that both passed preflight; the unique index is the final race guard.
+    createExistingCustomerOrder($context['user'], $context['branch'], [
+        'checkout_idempotency_key_hash' => $keyHash,
+        'checkout_request_hash' => $requestHash,
+    ]);
+
+    expect(fn (): Order => createExistingCustomerOrder(
+        $context['user'],
+        $context['branch'],
+        [
+            'checkout_idempotency_key_hash' => $keyHash,
+            'checkout_request_hash' => $requestHash,
+        ],
+    ))->toThrow(QueryException::class);
+});
+
+test('checkout rejects a reused idempotency key with a different payload', function (): void {
+    $context = createOrderCheckoutContext();
+    $this->actingAs($context['user']);
+
+    $this->postJson('/api/v1/customer/orders', [
+        'delivery_method' => 'pickup',
+        'payment_method' => 'cash',
+    ])->assertCreated();
+
+    $this->postJson('/api/v1/customer/orders', [
+        'delivery_method' => 'pickup',
+        'payment_method' => 'vnpay',
+    ])->assertUnprocessable()->assertJsonPath(
+        'data.errors.idempotency_key.0',
+        'Mã chống trùng này đã được dùng cho một yêu cầu đặt hàng khác',
+    );
+
+    $this->assertDatabaseCount('orders', 1);
+    $this->assertDatabaseCount('payments', 1);
+});
+
+test('checkout requires an idempotency key header', function (): void {
+    $context = createOrderCheckoutContext();
+    $this->actingAs($context['user'])->withHeader('Idempotency-Key', '');
+
+    $this->postJson('/api/v1/customer/orders', [
+        'delivery_method' => 'pickup',
+        'payment_method' => 'cash',
+    ])->assertUnprocessable()->assertJsonPath(
+        'data.errors.idempotency_key.0',
+        'Thiếu mã chống trùng khi đặt hàng',
+    );
+
+    $this->assertDatabaseCount('orders', 0);
 });
 
 test('checkout rejects an empty cart with a clear error', function (): void {
@@ -523,6 +641,7 @@ test('customer cannot view another customers order', function (): void {
 
 test('guest cannot access customer order endpoints', function (): void {
     $this->getJson('/api/v1/customer/orders')->assertUnauthorized();
+    $this->postJson('/api/v1/customer/orders/preview', [])->assertUnauthorized();
     $this->postJson('/api/v1/customer/orders', [])->assertUnauthorized();
     $this->getJson('/api/v1/customer/orders/1')->assertUnauthorized();
 });
@@ -536,6 +655,12 @@ test('customer checkout does not accept the POS-only bank transfer method', func
         'payment_method' => 'bank_transfer',
     ])
         ->assertUnprocessable()
+        ->assertJsonPath('data.errors.payment_method.0', 'Phương thức thanh toán không hợp lệ');
+
+    $this->postJson('/api/v1/customer/orders/preview', [
+        'delivery_method' => 'pickup',
+        'payment_method' => 'bank_transfer',
+    ])->assertUnprocessable()
         ->assertJsonPath('data.errors.payment_method.0', 'Phương thức thanh toán không hợp lệ');
 
     $this->assertDatabaseCount('orders', 0);

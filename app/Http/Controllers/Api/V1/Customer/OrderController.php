@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api\V1\Customer;
 
 use App\Http\Controllers\Api\V1\BaseController;
 use App\Http\Requests\Customer\CancelOrderRequest;
+use App\Http\Requests\Customer\CheckoutPreviewRequest;
 use App\Http\Requests\Customer\CreateOrderRequest;
 use App\Http\Requests\Customer\IndexOrderRequest;
 use App\Http\Requests\Customer\RequestRefundRequest;
+use App\Http\Resources\Customer\CheckoutPreviewResource;
 use App\Http\Resources\Customer\OrderListResource;
 use App\Http\Resources\Customer\OrderResource;
 use App\Http\Resources\Customer\RefundResource;
@@ -25,6 +27,37 @@ class OrderController extends BaseController
 
     /**
      * @OA\Post(
+     *     path="/api/v1/customer/orders/preview",
+     *     operationId="customerCheckoutPreview",
+     *     tags={"Customer Orders"},
+     *     summary="Xem tổng tiền checkout do máy chủ xác nhận",
+     *
+     *     @OA\RequestBody(required=true, @OA\JsonContent(
+     *         required={"delivery_method", "payment_method"},
+     *
+     *         @OA\Property(property="delivery_method", type="string", enum={"pickup", "delivery"}),
+     *         @OA\Property(property="address_id", type="integer", nullable=true),
+     *         @OA\Property(property="shipping_quote_token", type="string", nullable=true),
+     *         @OA\Property(property="payment_method", type="string", enum={"wallet", "vnpay", "cash"})
+     *     )),
+     *
+     *     @OA\Response(response=200, description="Tổng tiền checkout authoritative"),
+     *     @OA\Response(response=422, description="Giỏ hàng hoặc lựa chọn checkout không hợp lệ")
+     * )
+     */
+    public function preview(CheckoutPreviewRequest $request): JsonResponse
+    {
+        return $this->successResponse(
+            request: $request,
+            resource: new CheckoutPreviewResource(
+                $this->orders->preview($request->user(), $request->validated()),
+            ),
+            message: 'Lấy tổng tiền thanh toán thành công!',
+        );
+    }
+
+    /**
+     * @OA\Post(
      *     path="/api/v1/customer/orders",
      *     operationId="customerCheckout",
      *     tags={"Customer Orders"},
@@ -38,6 +71,14 @@ class OrderController extends BaseController
      *         @OA\Property(property="shipping_quote_token", type="string", nullable=true, description="Bắt buộc khi delivery"),
      *         @OA\Property(property="payment_method", type="string", enum={"wallet", "vnpay", "cash"})
      *     )),
+     *
+     *     @OA\Parameter(
+     *         name="Idempotency-Key",
+     *         in="header",
+     *         required=true,
+     *
+     *         @OA\Schema(type="string", minLength=16, maxLength=100)
+     *     ),
      *
      *     @OA\Response(response=201, description="Đã tạo đơn hàng"),
      *     @OA\Response(response=401, description="Chưa đăng nhập"),

@@ -9,6 +9,15 @@ use Illuminate\Validation\Rule;
 
 class CreateOrderRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        $key = $this->header('Idempotency-Key');
+
+        if (is_string($key)) {
+            $this->merge(['idempotency_key' => trim($key)]);
+        }
+    }
+
     public function authorize(): bool
     {
         return true;
@@ -36,11 +45,17 @@ class CreateOrderRequest extends FormRequest
                 'size:64',
                 'regex:/\A[a-f0-9]{64}\z/',
             ],
-            'payment_method' => ['required', Rule::in([
-                PaymentMethod::Wallet->value,
-                PaymentMethod::VNPay->value,
-                PaymentMethod::Cash->value,
-            ])],
+            'payment_method' => ['required', Rule::in(array_map(
+                static fn (PaymentMethod $method): string => $method->value,
+                PaymentMethod::customerCheckoutMethods(),
+            ))],
+            'idempotency_key' => [
+                'required',
+                'string',
+                'min:16',
+                'max:100',
+                'regex:/\A[A-Za-z0-9._:-]+\z/',
+            ],
         ];
     }
 
@@ -57,6 +72,10 @@ class CreateOrderRequest extends FormRequest
             'shipping_quote_token.regex' => 'Báo giá vận chuyển không hợp lệ!',
             'payment_method.required' => 'Vui lòng chọn phương thức thanh toán',
             'payment_method.in' => 'Phương thức thanh toán không hợp lệ',
+            'idempotency_key.required' => 'Thiếu mã chống trùng khi đặt hàng',
+            'idempotency_key.min' => 'Mã chống trùng khi đặt hàng không hợp lệ',
+            'idempotency_key.max' => 'Mã chống trùng khi đặt hàng không hợp lệ',
+            'idempotency_key.regex' => 'Mã chống trùng khi đặt hàng không hợp lệ',
         ];
     }
 }
