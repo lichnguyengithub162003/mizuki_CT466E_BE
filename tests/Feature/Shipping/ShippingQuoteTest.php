@@ -278,6 +278,7 @@ test('shipping quote remains usable and logs normalized context when GHN leadtim
 
 test('delivery preview and order creation share authoritative totals without consuming the quote early', function (): void {
     $context = createShippingQuoteContext();
+    Wallet::query()->create(['user_id' => $context['user']->id, 'balance' => 300_000]);
     fakeShippingQuoteGhn(30_000);
     $this->actingAs($context['user']);
     $token = $this->postJson('/api/v1/customer/shipping/quote', [
@@ -296,6 +297,9 @@ test('delivery preview and order creation share authoritative totals without con
         ->assertJsonPath('data.discount_amount', 0)
         ->assertJsonPath('data.shipping_fee', 30_000)
         ->assertJsonPath('data.total_amount', 330_000)
+        ->assertJsonPath('data.wallet.balance', 300_000)
+        ->assertJsonPath('data.wallet.payable', false)
+        ->assertJsonPath('data.wallet.shortfall', 30_000)
         ->assertJsonPath('data.expected_delivery_time', '2026-08-03T23:59:59+07:00');
 
     expect(Cache::has(shippingQuoteCacheKey($token)))->toBeTrue();

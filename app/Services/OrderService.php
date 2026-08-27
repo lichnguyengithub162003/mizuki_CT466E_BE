@@ -77,6 +77,10 @@ class OrderService extends BaseService
             'shipping_fee' => $pricing['shipping_fee'],
             'total_amount' => $pricing['total_amount'],
             'expected_delivery_time' => $quote['expected_delivery_time'] ?? null,
+            'wallet' => $this->walletService->affordabilityForCustomer(
+                $user,
+                $pricing['total_amount'],
+            ),
             'payment_methods' => array_map(
                 static fn (PaymentMethod $method): array => [
                     'value' => $method->value,

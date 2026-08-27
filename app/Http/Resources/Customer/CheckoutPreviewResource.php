@@ -20,6 +20,7 @@ class CheckoutPreviewResource extends JsonResource
             'shipping_fee' => $this['shipping_fee'],
             'total_amount' => $this['total_amount'],
             'expected_delivery_time' => $this['expected_delivery_time'],
+            'wallet' => $this['wallet'],
             'payment_methods' => $this['payment_methods'],
             'selected_payment_method' => $this['selected_payment_method'],
         ];

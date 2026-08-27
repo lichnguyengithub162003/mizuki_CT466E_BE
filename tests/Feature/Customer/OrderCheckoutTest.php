@@ -139,6 +139,10 @@ test('checkout preview returns authoritative pickup totals without creating an o
     ]);
     $promotion->branches()->attach($context['branch']->id);
     $context['cart']->update(['promotion_id' => $promotion->id]);
+    Wallet::query()->create([
+        'user_id' => $context['user']->id,
+        'balance' => 267_000,
+    ]);
     $this->actingAs($context['user']);
 
     $this->postJson('/api/v1/customer/orders/preview', [
@@ -154,6 +158,9 @@ test('checkout preview returns authoritative pickup totals without creating an o
         ->assertJsonPath('data.shipping_fee', 0)
         ->assertJsonPath('data.total_amount', 270_000)
         ->assertJsonPath('data.expected_delivery_time', null)
+        ->assertJsonPath('data.wallet.balance', 267_000)
+        ->assertJsonPath('data.wallet.payable', false)
+        ->assertJsonPath('data.wallet.shortfall', 3_000)
         ->assertJsonPath('data.payment_methods.0.value', 'cash')
         ->assertJsonPath('data.payment_methods.1.value', 'wallet')
         ->assertJsonPath('data.payment_methods.2.value', 'vnpay')
@@ -166,6 +173,47 @@ test('checkout preview returns authoritative pickup totals without creating an o
     expect($promotion->refresh()->usage_count)->toBe(0)
         ->and($context['inventory']->refresh()->reserved_quantity)->toBe(1);
     Http::assertNothingSent();
+});
+
+test('checkout preview reports when the wallet can pay the authoritative total', function (): void {
+    $context = createOrderCheckoutContext();
+    Wallet::query()->create([
+        'user_id' => $context['user']->id,
+        'balance' => 300_000,
+    ]);
+    $this->actingAs($context['user']);
+
+    $this->postJson('/api/v1/customer/orders/preview', [
+        'delivery_method' => 'pickup',
+        'payment_method' => 'cash',
+    ])->assertOk()
+        ->assertJsonPath('data.total_amount', 300_000)
+        ->assertJsonPath('data.wallet.balance', 300_000)
+        ->assertJsonPath('data.wallet.payable', true)
+        ->assertJsonPath('data.wallet.shortfall', 0)
+        ->assertJsonPath('data.payment_methods.0.value', 'cash')
+        ->assertJsonPath('data.payment_methods.1.value', 'wallet')
+        ->assertJsonPath('data.payment_methods.2.value', 'vnpay');
+});
+
+test('checkout preview lazily creates a missing wallet with zero affordability', function (): void {
+    $context = createOrderCheckoutContext();
+    $this->actingAs($context['user']);
+
+    $this->postJson('/api/v1/customer/orders/preview', [
+        'delivery_method' => 'pickup',
+        'payment_method' => 'cash',
+    ])->assertOk()
+        ->assertJsonPath('data.total_amount', 300_000)
+        ->assertJsonPath('data.wallet.balance', 0)
+        ->assertJsonPath('data.wallet.payable', false)
+        ->assertJsonPath('data.wallet.shortfall', 300_000);
+
+    $this->assertDatabaseCount('wallets', 1);
+    $this->assertDatabaseHas('wallets', [
+        'user_id' => $context['user']->id,
+        'balance' => 0,
+    ]);
 });
 
 test('customer can create an order from a valid cart and cart items are cleared', function (): void {

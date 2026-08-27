@@ -32,6 +32,18 @@ class WalletService extends BaseService
         );
     }
 
+    /** @return array{balance: int, payable: bool, shortfall: int} */
+    public function affordabilityForCustomer(User $user, int $totalAmount): array
+    {
+        $wallet = $this->forCustomer($user);
+
+        return [
+            'balance' => $wallet->balance,
+            'payable' => $wallet->balance >= $totalAmount,
+            'shortfall' => max($totalAmount - $wallet->balance, 0),
+        ];
+    }
+
     /**
      * @param  array<string, mixed>  $filters
      * @return array{wallet: Wallet, transactions: LengthAwarePaginator<int, WalletTransaction>}
