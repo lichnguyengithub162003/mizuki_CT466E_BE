@@ -28,7 +28,7 @@ enum PaymentStatus: string
     {
         return match ($this) {
             self::Pending => 'Chờ thanh toán',
-            self::Paid => 'Đã thanh toán',
+            self::Paid => 'Đã thu tiền',
             self::Failed => 'Thanh toán thất bại',
             self::Cancelled => 'Đã hủy thanh toán',
             self::Refunded => 'Đã hoàn tiền',

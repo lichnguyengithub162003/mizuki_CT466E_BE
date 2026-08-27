@@ -2,6 +2,7 @@
 
 use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
+use App\Enums\PaymentStatus;
 use App\Enums\UserRole;
 use App\Events\OrderPlaced;
 use App\Models\Branch;
@@ -32,7 +33,7 @@ use Illuminate\Support\Str;
 uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
-    $this->withHeader('Idempotency-Key', 'checkout-test-'.Str::uuid());
+    $this->withHeader('Idempotency-Key', 'checkout-test-' . Str::uuid());
 });
 
 /** @return array{user: User, branch: Branch, cart: Cart, variant: ProductVariant, inventory: BranchInventory} */
@@ -41,8 +42,8 @@ function createOrderCheckoutContext(bool $withItem = true, bool $selectBranch = 
     $token = Str::upper(Str::random(8));
     $user = User::factory()->create(['role' => UserRole::Customer]);
     $branch = Branch::query()->create([
-        'code' => 'OR'.$token,
-        'name' => 'Mizuki Order '.$token,
+        'code' => 'OR' . $token,
+        'name' => 'Mizuki Order ' . $token,
         'phone' => '02923888888',
         'address' => 'Ninh Kiều, Cần Thơ',
         'province_code' => 'CT',
@@ -51,27 +52,27 @@ function createOrderCheckoutContext(bool $withItem = true, bool $selectBranch = 
         'is_active' => true,
     ]);
     $category = Category::query()->create([
-        'name' => 'Order '.$token,
-        'slug' => 'order-category-'.strtolower($token),
+        'name' => 'Order ' . $token,
+        'slug' => 'order-category-' . strtolower($token),
         'is_active' => true,
     ]);
     $brand = Brand::query()->create([
-        'name' => 'Order Brand '.$token,
-        'slug' => 'order-brand-'.strtolower($token),
+        'name' => 'Order Brand ' . $token,
+        'slug' => 'order-brand-' . strtolower($token),
         'is_active' => true,
     ]);
     $product = Product::query()->create([
         'category_id' => $category->id,
         'brand_id' => $brand->id,
-        'name' => 'Order Product '.$token,
-        'slug' => 'order-product-'.strtolower($token),
+        'name' => 'Order Product ' . $token,
+        'slug' => 'order-product-' . strtolower($token),
         'is_active' => true,
         'is_featured' => false,
     ]);
     $variant = ProductVariant::query()->create([
         'product_id' => $product->id,
         'name' => '50 ml',
-        'sku' => 'ORDER-'.$token,
+        'sku' => 'ORDER-' . $token,
         'attributes' => ['capacity' => '50 ml'],
         'price' => 200_000,
         'sale_price' => 150_000,
@@ -105,7 +106,7 @@ function createOrderCheckoutContext(bool $withItem = true, bool $selectBranch = 
 function createExistingCustomerOrder(User $user, Branch $branch, array $overrides = []): Order
 {
     return Order::query()->create(array_merge([
-        'order_number' => 'MZ-'.Str::upper(Str::random(12)),
+        'order_number' => 'MZ-' . Str::upper(Str::random(12)),
         'user_id' => $user->id,
         'branch_id' => $branch->id,
         'channel' => 'online',
@@ -231,6 +232,10 @@ test('customer can create an order from a valid cart and cart items are cleared'
         ->assertJsonPath('data.status', 'pending')
         ->assertJsonPath('data.delivery_method', 'pickup')
         ->assertJsonPath('data.payment_method', 'cash')
+        ->assertJsonPath('data.payment_status', 'pending')
+        ->assertJsonPath('data.payment_status_label', 'Chờ thanh toán')
+        ->assertJsonPath('data.payment.status', 'pending')
+        ->assertJsonPath('data.payment.status_label', 'Chờ thanh toán')
         ->assertJsonPath('data.subtotal', 300_000)
         ->assertJsonPath('data.total_amount', 300_000)
         ->assertJsonPath('data.items.0.product_name', $context['variant']->product->name)
@@ -249,7 +254,7 @@ test('customer can create an order from a valid cart and cart items are cleared'
     $this->assertDatabaseCount('cart_items', 0);
     $this->assertDatabaseHas('carts', ['id' => $context['cart']->id, 'promotion_id' => null]);
     expect($context['inventory']->refresh()->reserved_quantity)->toBe(3);
-    Event::assertDispatched(OrderPlaced::class, fn (OrderPlaced $event): bool => $event->order->id === $orderId);
+    Event::assertDispatched(OrderPlaced::class, fn(OrderPlaced $event): bool => $event->order->id === $orderId);
 });
 
 test('delivery checkout snapshots an address belonging to the customer', function (): void {
@@ -375,6 +380,10 @@ test('wallet checkout creates and pays the order atomically when balance is suff
         ->assertCreated()
         ->assertJsonPath('data.status', 'pending')
         ->assertJsonPath('data.payment_method', 'wallet')
+        ->assertJsonPath('data.payment_status', 'paid')
+        ->assertJsonPath('data.payment_status_label', 'Đã thu tiền')
+        ->assertJsonPath('data.payment.status', 'paid')
+        ->assertJsonPath('data.payment.status_label', 'Đã thu tiền')
         ->assertJsonPath('data.total_amount', 300_000);
 
     $orderId = $response->json('data.id');
@@ -446,7 +455,7 @@ test('wallet checkout with insufficient balance rolls back every checkout write'
 
 test('repeating checkout with the same idempotency key returns the original order', function (): void {
     $context = createOrderCheckoutContext();
-    $idempotencyKey = 'retry-'.Str::uuid();
+    $idempotencyKey = 'retry-' . Str::uuid();
     $wallet = Wallet::query()->create([
         'user_id' => $context['user']->id,
         'balance' => 700_000,
@@ -478,7 +487,7 @@ test('repeating checkout with the same idempotency key returns the original orde
 
 test('database uniqueness closes the concurrent checkout idempotency race', function (): void {
     $context = createOrderCheckoutContext(false);
-    $keyHash = hash('sha256', 'concurrent-'.Str::uuid());
+    $keyHash = hash('sha256', 'concurrent-' . Str::uuid());
     $requestHash = hash('sha256', 'same-checkout-payload');
 
     // Model two workers that both passed preflight; the unique index is the final race guard.
@@ -487,7 +496,7 @@ test('database uniqueness closes the concurrent checkout idempotency race', func
         'checkout_request_hash' => $requestHash,
     ]);
 
-    expect(fn (): Order => createExistingCustomerOrder(
+    expect(fn(): Order => createExistingCustomerOrder(
         $context['user'],
         $context['branch'],
         [
@@ -571,8 +580,10 @@ test('checkout revalidates stock and rolls back every write when stock is insuff
     $this->postJson('/api/v1/customer/orders', [
         'delivery_method' => 'pickup',
         'payment_method' => 'cash',
-    ])->assertUnprocessable()->assertJsonPath('data.errors.stock.0',
-        "Sản phẩm {$context['variant']->product->name} chỉ còn 1 sản phẩm tại chi nhánh đã chọn");
+    ])->assertUnprocessable()->assertJsonPath(
+        'data.errors.stock.0',
+        "Sản phẩm {$context['variant']->product->name} chỉ còn 1 sản phẩm tại chi nhánh đã chọn"
+    );
 
     $this->assertDatabaseCount('orders', 0);
     $this->assertDatabaseCount('cart_items', 1);
@@ -639,23 +650,35 @@ test('pickup checkout rejects the selected branch when it became inactive', func
 test('checkout rejects a promotion after the customer reaches its per user limit', function (): void {
     $context = createOrderCheckoutContext();
     $promotion = Promotion::query()->create([
-        'code' => 'ONCEONLY', 'name' => 'Once', 'discount_type' => 'fixed_amount',
-        'discount_value' => 10_000, 'minimum_order_amount' => 0, 'usage_count' => 1,
-        'per_user_limit' => 1, 'applies_to' => 'order', 'starts_at' => now()->subDay(),
-        'ends_at' => now()->addDay(), 'is_active' => true,
+        'code' => 'ONCEONLY',
+        'name' => 'Once',
+        'discount_type' => 'fixed_amount',
+        'discount_value' => 10_000,
+        'minimum_order_amount' => 0,
+        'usage_count' => 1,
+        'per_user_limit' => 1,
+        'applies_to' => 'order',
+        'starts_at' => now()->subDay(),
+        'ends_at' => now()->addDay(),
+        'is_active' => true,
     ]);
     $promotion->branches()->attach($context['branch']->id);
     $oldOrder = createExistingCustomerOrder($context['user'], $context['branch']);
     PromotionUsage::query()->create([
-        'promotion_id' => $promotion->id, 'user_id' => $context['user']->id,
-        'order_id' => $oldOrder->id, 'promotion_code' => $promotion->code,
-        'promotion_name' => $promotion->name, 'discount_amount' => 10_000, 'used_at' => now(),
+        'promotion_id' => $promotion->id,
+        'user_id' => $context['user']->id,
+        'order_id' => $oldOrder->id,
+        'promotion_code' => $promotion->code,
+        'promotion_name' => $promotion->name,
+        'discount_amount' => 10_000,
+        'used_at' => now(),
     ]);
     $context['cart']->update(['promotion_id' => $promotion->id]);
     $this->actingAs($context['user']);
 
     $this->postJson('/api/v1/customer/orders', [
-        'delivery_method' => 'pickup', 'payment_method' => 'cash',
+        'delivery_method' => 'pickup',
+        'payment_method' => 'cash',
     ])->assertUnprocessable()
         ->assertJsonPath('data.errors.code.0', 'Bạn đã sử dụng hết số lượt cho voucher này');
 
@@ -667,12 +690,16 @@ test('customer order list supports status filtering and newest first ordering', 
     $context = createOrderCheckoutContext(false);
     createExistingCustomerOrder($context['user'], $context['branch'], ['status' => OrderStatus::Confirmed]);
     $newest = createExistingCustomerOrder($context['user'], $context['branch'], ['status' => OrderStatus::Pending]);
+    app(PaymentService::class)->createForOrder($newest, PaymentStatus::Paid);
     $this->actingAs($context['user']);
 
     $this->getJson('/api/v1/customer/orders?status=pending')
         ->assertOk()
         ->assertJsonCount(1, 'data')
         ->assertJsonPath('data.0.id', $newest->id)
+        ->assertJsonPath('data.0.status', 'pending')
+        ->assertJsonPath('data.0.payment_status', 'paid')
+        ->assertJsonPath('data.0.payment_status_label', 'Đã thu tiền')
         ->assertJsonPath('meta.pagination.total', 1);
 });
 
@@ -724,7 +751,7 @@ test('payment failure rolls back customer order and checkout writes', function (
     $this->actingAs($context['user']);
     $this->withoutExceptionHandling();
 
-    expect(fn () => $this->postJson('/api/v1/customer/orders', [
+    expect(fn() => $this->postJson('/api/v1/customer/orders', [
         'delivery_method' => 'pickup',
         'payment_method' => 'cash',
     ]))->toThrow(RuntimeException::class, 'Simulated payment persistence failure');

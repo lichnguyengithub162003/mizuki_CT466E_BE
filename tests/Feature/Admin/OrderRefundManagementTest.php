@@ -27,8 +27,8 @@ function createOrderAdminBranch(string $prefix = 'OA'): Branch
     $token = Str::upper(Str::random(8));
 
     return Branch::query()->create([
-        'code' => $prefix.$token,
-        'name' => 'Mizuki Order '.$token,
+        'code' => $prefix . $token,
+        'name' => 'Mizuki Order ' . $token,
         'phone' => '02923888888',
         'address' => 'Ninh Kiều, Cần Thơ',
         'province_code' => 'CT',
@@ -45,7 +45,7 @@ function createAdminManagedOrder(
     ?string $orderNumber = null,
 ): Order {
     return Order::query()->create([
-        'order_number' => $orderNumber ?? 'MZ-'.Str::upper(Str::random(12)),
+        'order_number' => $orderNumber ?? 'MZ-' . Str::upper(Str::random(12)),
         'user_id' => $customer->id,
         'branch_id' => $branch->id,
         'channel' => 'online',
@@ -63,7 +63,7 @@ function createAdminManagedOrder(
 function createAdminManagedRefund(Order $order, User $customer, string $status = 'requested'): Refund
 {
     return Refund::query()->create([
-        'refund_number' => 'RF-'.Str::upper(Str::random(12)),
+        'refund_number' => 'RF-' . Str::upper(Str::random(12)),
         'order_id' => $order->id,
         'user_id' => $customer->id,
         'status' => $status,
@@ -246,7 +246,7 @@ test('wallet payout rolls back the balance when ledger creation fails', function
     $this->actingAs(User::factory()->create(['role' => UserRole::SuperAdmin]));
     $this->withoutExceptionHandling();
 
-    expect(fn () => $this->postJson("/api/v1/admin/refunds/{$refund->id}/wallet-payout"))
+    expect(fn() => $this->postJson("/api/v1/admin/refunds/{$refund->id}/wallet-payout"))
         ->toThrow(RuntimeException::class, 'Simulated ledger failure');
 
     expect($wallet->refresh()->balance)->toBe(25_000)
@@ -388,7 +388,7 @@ test('admin confirms only pending orders and dispatches status event after commi
     expect($pending->refresh()->status)->toBe(OrderStatus::Confirmed);
     Event::assertDispatched(
         OrderStatusUpdated::class,
-        fn (OrderStatusUpdated $event): bool => $event->order->id === $pending->id
+        fn(OrderStatusUpdated $event): bool => $event->order->id === $pending->id
             && $event->previousStatus === OrderStatus::Pending,
     );
 
@@ -434,8 +434,11 @@ test('admin order detail exposes payment delivery shipment and allowed actions',
 
     $this->getJson("/api/v1/admin/orders/{$order->id}")
         ->assertOk()
+        ->assertJsonPath('data.payment_status', 'paid')
+        ->assertJsonPath('data.payment_status_label', 'Đã thu tiền')
         ->assertJsonPath('data.payment.id', $payment->id)
         ->assertJsonPath('data.payment.status', 'paid')
+        ->assertJsonPath('data.payment.status_label', 'Đã thu tiền')
         ->assertJsonPath('data.delivery_address.address_id', null)
         ->assertJsonPath('data.delivery_address.recipient_name', 'Mizuki Customer')
         ->assertJsonPath('data.delivery_address.full_address', '123 Test Street, Can Tho')
@@ -469,7 +472,7 @@ test('admin processes only confirmed paid or COD orders within branch scope', fu
     expect($ownOrder->refresh()->status)->toBe(OrderStatus::Processing);
     Event::assertDispatched(
         OrderStatusUpdated::class,
-        fn (OrderStatusUpdated $event): bool => $event->order->id === $ownOrder->id
+        fn(OrderStatusUpdated $event): bool => $event->order->id === $ownOrder->id
             && $event->previousStatus === OrderStatus::Confirmed,
     );
 
@@ -626,6 +629,6 @@ test('database prevents multiple refund requests for the same order', function (
     $order = createAdminManagedOrder($branch, $customer, OrderStatus::Delivered);
     createAdminManagedRefund($order, $customer);
 
-    expect(fn (): Refund => createAdminManagedRefund($order, $customer))
+    expect(fn(): Refund => createAdminManagedRefund($order, $customer))
         ->toThrow(QueryException::class);
 });

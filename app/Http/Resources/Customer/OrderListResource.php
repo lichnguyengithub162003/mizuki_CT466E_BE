@@ -17,6 +17,8 @@ class OrderListResource extends JsonResource
             'status_label' => $this->status->label(),
             'delivery_method' => $this->fulfillment_method === 'shipping' ? 'delivery' : 'pickup',
             'payment_method' => $this->payment_method->value,
+            'payment_status' => $this->payment?->status->value,
+            'payment_status_label' => $this->payment?->status->label(),
             'item_count' => (int) $this->items_count,
             'subtotal' => $this->subtotal,
             'discount_amount' => $this->discount_amount,

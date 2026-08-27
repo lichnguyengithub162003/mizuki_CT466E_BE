@@ -84,6 +84,7 @@ class OrderRepository extends BaseRepository
             'branch:id,name,address',
             'promotion:id,code,name',
             'userAddress',
+            'payment',
             'shipment',
             'refunds' => fn (Builder|HasMany $query): Builder|HasMany => $query->orderByDesc('id'),
             'items' => fn (Builder|HasMany $query): Builder|HasMany => $query->orderBy('id'),
@@ -108,6 +109,7 @@ class OrderRepository extends BaseRepository
                 isset($filters['status']),
                 fn (Builder $query): Builder => $query->where('status', $filters['status']),
             )
+            ->with('payment')
             ->withCount('items')
             ->orderByDesc('created_at')
             ->orderByDesc('id')
