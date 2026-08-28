@@ -19,8 +19,8 @@ function createPaymentCoreOrder(?User $user = null): array
     $token = Str::upper(Str::random(8));
     $user ??= User::factory()->create(['role' => UserRole::Customer]);
     $branch = Branch::query()->create([
-        'code' => 'PAY'.$token,
-        'name' => 'Mizuki Payment '.$token,
+        'code' => 'PAY' . $token,
+        'name' => 'Mizuki Payment ' . $token,
         'phone' => '02923888888',
         'address' => 'Ninh Kiều, Cần Thơ',
         'province_code' => 'CT',
@@ -29,7 +29,7 @@ function createPaymentCoreOrder(?User $user = null): array
         'is_active' => true,
     ]);
     $order = Order::query()->create([
-        'order_number' => 'MZ-PAY-'.Str::upper(Str::random(10)),
+        'order_number' => 'MZ-PAY-' . Str::upper(Str::random(10)),
         'user_id' => $user->id,
         'branch_id' => $branch->id,
         'channel' => 'online',
@@ -143,5 +143,5 @@ test('an initially paid internal payment has consistent timestamps without compl
         ->getJson("/api/v1/customer/orders/{$context['order']->id}/payment")
         ->assertOk()
         ->assertJsonPath('data.status', 'paid')
-        ->assertJsonPath('data.status_label', 'Đã thanh toán');
+        ->assertJsonPath('data.status_label', 'Đã thu tiền');
 });

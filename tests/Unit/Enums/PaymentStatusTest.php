@@ -13,7 +13,7 @@ test('it defines stable payment lifecycle values', function (): void {
 
 test('it provides Vietnamese labels', function (): void {
     expect(PaymentStatus::Pending->label())->toBe('Chờ thanh toán')
-        ->and(PaymentStatus::Paid->label())->toBe('Đã thanh toán')
+        ->and(PaymentStatus::Paid->label())->toBe('Đã thu tiền')
         ->and(PaymentStatus::Failed->label())->toBe('Thanh toán thất bại')
         ->and(PaymentStatus::Cancelled->label())->toBe('Đã hủy thanh toán')
         ->and(PaymentStatus::Refunded->label())->toBe('Đã hoàn tiền');
