@@ -219,6 +219,16 @@ class OrderRepository extends BaseRepository
                 'user:id,name,email,phone',
                 'branch:id,name,address',
                 'items',
+                'items.productVariant' => fn (BelongsTo $variant): BelongsTo => $variant->withTrashed(),
+                'items.productVariant.images' => fn (HasMany $images): HasMany => $images
+                    ->orderByDesc('is_primary')
+                    ->orderBy('sort_order')
+                    ->orderBy('id'),
+                'items.productVariant.product' => fn (BelongsTo $product): BelongsTo => $product->withTrashed(),
+                'items.productVariant.product.images' => fn (HasMany $images): HasMany => $images
+                    ->orderByDesc('is_primary')
+                    ->orderBy('sort_order')
+                    ->orderBy('id'),
                 'payment',
                 'shipment',
                 'refunds',
@@ -239,6 +249,16 @@ class OrderRepository extends BaseRepository
                 'user:id,name,email,phone',
                 'branch:id,name,address',
                 'items',
+                'items.productVariant' => fn (BelongsTo $variant): BelongsTo => $variant->withTrashed(),
+                'items.productVariant.images' => fn (HasMany $images): HasMany => $images
+                    ->orderByDesc('is_primary')
+                    ->orderBy('sort_order')
+                    ->orderBy('id'),
+                'items.productVariant.product' => fn (BelongsTo $product): BelongsTo => $product->withTrashed(),
+                'items.productVariant.product.images' => fn (HasMany $images): HasMany => $images
+                    ->orderByDesc('is_primary')
+                    ->orderBy('sort_order')
+                    ->orderBy('id'),
                 'payment',
                 'shipment',
                 'refunds.reviewedBy:id,name',

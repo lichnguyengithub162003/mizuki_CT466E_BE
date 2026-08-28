@@ -4,8 +4,10 @@ namespace App\Http\Resources\Admin;
 
 use App\Enums\OrderStatus;
 use App\Models\OrderItem;
+use App\Models\ProductImage;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Collection;
 
 class OrderResource extends JsonResource
 {
@@ -78,6 +80,10 @@ class OrderResource extends JsonResource
                 'variant_name' => $item->variant_name,
                 'sku' => $item->sku,
                 'variant_attributes' => $item->variant_attributes,
+                'image_url' => $this->itemImageUrl($item),
+                'brand_id' => $item->brand_id,
+                'brand_name' => $item->brand_name,
+                'brand_slug' => $item->brand_slug,
                 'unit_price' => $item->unit_price,
                 'quantity' => $item->quantity,
                 'line_total' => $item->line_total,
@@ -105,6 +111,24 @@ class OrderResource extends JsonResource
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
         ];
+    }
+
+    private function itemImageUrl(OrderItem $item): ?string
+    {
+        $variant = $item->productVariant;
+
+        if ($variant === null) {
+            return null;
+        }
+
+        return $this->primaryImageUrl($variant->images)
+            ?? $this->primaryImageUrl($variant->product?->images ?? collect());
+    }
+
+    /** @param  Collection<int, ProductImage>  $images */
+    private function primaryImageUrl(Collection $images): ?string
+    {
+        return ($images->firstWhere('is_primary', true) ?? $images->first())?->image_url;
     }
 
     /** @return list<string> */

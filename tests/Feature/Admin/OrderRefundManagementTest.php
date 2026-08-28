@@ -6,8 +6,13 @@ use App\Enums\PaymentStatus;
 use App\Enums\UserRole;
 use App\Events\OrderStatusUpdated;
 use App\Models\Branch;
+use App\Models\Brand;
+use App\Models\Category;
 use App\Models\Order;
 use App\Models\Payment;
+use App\Models\Product;
+use App\Models\ProductImage;
+use App\Models\ProductVariant;
 use App\Models\Refund;
 use App\Models\Shipment;
 use App\Models\User;
@@ -27,8 +32,8 @@ function createOrderAdminBranch(string $prefix = 'OA'): Branch
     $token = Str::upper(Str::random(8));
 
     return Branch::query()->create([
-        'code' => $prefix . $token,
-        'name' => 'Mizuki Order ' . $token,
+        'code' => $prefix.$token,
+        'name' => 'Mizuki Order '.$token,
         'phone' => '02923888888',
         'address' => 'Ninh Kiều, Cần Thơ',
         'province_code' => 'CT',
@@ -45,7 +50,7 @@ function createAdminManagedOrder(
     ?string $orderNumber = null,
 ): Order {
     return Order::query()->create([
-        'order_number' => $orderNumber ?? 'MZ-' . Str::upper(Str::random(12)),
+        'order_number' => $orderNumber ?? 'MZ-'.Str::upper(Str::random(12)),
         'user_id' => $customer->id,
         'branch_id' => $branch->id,
         'channel' => 'online',
@@ -63,7 +68,7 @@ function createAdminManagedOrder(
 function createAdminManagedRefund(Order $order, User $customer, string $status = 'requested'): Refund
 {
     return Refund::query()->create([
-        'refund_number' => 'RF-' . Str::upper(Str::random(12)),
+        'refund_number' => 'RF-'.Str::upper(Str::random(12)),
         'order_id' => $order->id,
         'user_id' => $customer->id,
         'status' => $status,
@@ -246,7 +251,7 @@ test('wallet payout rolls back the balance when ledger creation fails', function
     $this->actingAs(User::factory()->create(['role' => UserRole::SuperAdmin]));
     $this->withoutExceptionHandling();
 
-    expect(fn() => $this->postJson("/api/v1/admin/refunds/{$refund->id}/wallet-payout"))
+    expect(fn () => $this->postJson("/api/v1/admin/refunds/{$refund->id}/wallet-payout"))
         ->toThrow(RuntimeException::class, 'Simulated ledger failure');
 
     expect($wallet->refresh()->balance)->toBe(25_000)
@@ -388,7 +393,7 @@ test('admin confirms only pending orders and dispatches status event after commi
     expect($pending->refresh()->status)->toBe(OrderStatus::Confirmed);
     Event::assertDispatched(
         OrderStatusUpdated::class,
-        fn(OrderStatusUpdated $event): bool => $event->order->id === $pending->id
+        fn (OrderStatusUpdated $event): bool => $event->order->id === $pending->id
             && $event->previousStatus === OrderStatus::Pending,
     );
 
@@ -423,6 +428,55 @@ test('admin order detail exposes payment delivery shipment and allowed actions',
         'note' => 'Giao trong giờ hành chính',
     ]);
     $payment = app(PaymentService::class)->createForOrder($order, PaymentStatus::Paid);
+    $brand = Brand::query()->create([
+        'name' => 'QA Order Brand',
+        'slug' => 'qa-order-brand',
+        'follower_count' => 0,
+        'is_active' => true,
+    ]);
+    $category = Category::query()->create([
+        'name' => 'QA Order Category',
+        'slug' => 'qa-order-category',
+        'is_active' => true,
+    ]);
+    $product = Product::query()->create([
+        'category_id' => $category->id,
+        'brand_id' => $brand->id,
+        'name' => 'QA Order Product',
+        'slug' => 'qa-order-product',
+        'is_active' => true,
+    ]);
+    $variant = ProductVariant::query()->create([
+        'product_id' => $product->id,
+        'name' => 'QA Variant',
+        'sku' => 'QA-ORDER-VARIANT',
+        'price' => 300_000,
+        'weight' => 50,
+        'sort_order' => 0,
+        'is_active' => true,
+    ]);
+    ProductImage::query()->create([
+        'product_id' => $product->id,
+        'product_variant_id' => $variant->id,
+        'image_url' => '/storage/qa/admin-order-item.webp',
+        'sort_order' => 0,
+        'is_primary' => true,
+    ]);
+    $order->items()->create([
+        'product_variant_id' => $variant->id,
+        'product_id' => $product->id,
+        'product_slug' => $product->slug,
+        'brand_id' => $brand->id,
+        'brand_name' => $brand->name,
+        'brand_slug' => $brand->slug,
+        'product_name' => $product->name,
+        'variant_name' => $variant->name,
+        'sku' => $variant->sku,
+        'original_unit_price' => 300_000,
+        'unit_price' => 300_000,
+        'quantity' => 1,
+        'line_total' => 300_000,
+    ]);
     Shipment::query()->create([
         'order_id' => $order->id,
         'provider' => 'ghn',
@@ -444,6 +498,10 @@ test('admin order detail exposes payment delivery shipment and allowed actions',
         ->assertJsonPath('data.delivery_address.full_address', '123 Test Street, Can Tho')
         ->assertJsonPath('data.shipment.tracking_code', 'GHN-ADMIN-001')
         ->assertJsonPath('data.shipment.status', 'ready_to_pick')
+        ->assertJsonPath('data.items.0.image_url', '/storage/qa/admin-order-item.webp')
+        ->assertJsonPath('data.items.0.brand_id', $brand->id)
+        ->assertJsonPath('data.items.0.brand_name', $brand->name)
+        ->assertJsonPath('data.items.0.brand_slug', $brand->slug)
         ->assertJsonPath('data.allowed_actions.0', 'shipment_label')
         ->assertJsonPath('data.allowed_actions.1', 'cancel_shipment')
         ->assertJsonPath('data.note', 'Giao trong giờ hành chính');
@@ -472,7 +530,7 @@ test('admin processes only confirmed paid or COD orders within branch scope', fu
     expect($ownOrder->refresh()->status)->toBe(OrderStatus::Processing);
     Event::assertDispatched(
         OrderStatusUpdated::class,
-        fn(OrderStatusUpdated $event): bool => $event->order->id === $ownOrder->id
+        fn (OrderStatusUpdated $event): bool => $event->order->id === $ownOrder->id
             && $event->previousStatus === OrderStatus::Confirmed,
     );
 
@@ -629,6 +687,6 @@ test('database prevents multiple refund requests for the same order', function (
     $order = createAdminManagedOrder($branch, $customer, OrderStatus::Delivered);
     createAdminManagedRefund($order, $customer);
 
-    expect(fn(): Refund => createAdminManagedRefund($order, $customer))
+    expect(fn (): Refund => createAdminManagedRefund($order, $customer))
         ->toThrow(QueryException::class);
 });
