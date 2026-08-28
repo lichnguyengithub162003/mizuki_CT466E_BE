@@ -14,6 +14,7 @@ use App\Models\Category;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Product;
+use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Models\Promotion;
 use App\Models\PromotionUsage;
@@ -818,6 +819,94 @@ test('customer order detail preserves delivery snapshot and exposes shipment tra
         ->assertJsonPath('data.shipment.provider', 'ghn')
         ->assertJsonPath('data.shipment.tracking_code', 'GHNTEST123')
         ->assertJsonPath('data.shipment.status', 'in_transit');
+});
+
+test('customer order detail prioritizes the variants authoritative product image', function (): void {
+    $context = createOrderCheckoutContext(false);
+    $order = createExistingCustomerOrder($context['user'], $context['branch']);
+    $item = $order->items()->create([
+        'product_variant_id' => $context['variant']->id,
+        'product_name' => $context['variant']->product->name,
+        'variant_name' => $context['variant']->name,
+        'sku' => $context['variant']->sku,
+        'variant_attributes' => $context['variant']->attributes,
+        'unit_price' => 100_000,
+        'quantity' => 1,
+        'line_total' => 100_000,
+    ]);
+    ProductImage::query()->create([
+        'product_id' => $context['variant']->product_id,
+        'image_url' => '/storage/catalog/products/product-primary.webp',
+        'sort_order' => 0,
+        'is_primary' => true,
+    ]);
+    ProductImage::query()->create([
+        'product_id' => $context['variant']->product_id,
+        'product_variant_id' => $context['variant']->id,
+        'image_url' => '/storage/catalog/products/variant-primary.webp',
+        'sort_order' => 0,
+        'is_primary' => true,
+    ]);
+    $this->actingAs($context['user']);
+
+    $this->getJson("/api/v1/customer/orders/{$order->id}")
+        ->assertOk()
+        ->assertJsonPath('data.items.0.id', $item->id)
+        ->assertJsonPath('data.items.0.image_url', '/storage/catalog/products/variant-primary.webp');
+});
+
+test('customer order detail falls back to the product primary image', function (): void {
+    $context = createOrderCheckoutContext(false);
+    $order = createExistingCustomerOrder($context['user'], $context['branch']);
+    $item = $order->items()->create([
+        'product_variant_id' => $context['variant']->id,
+        'product_name' => $context['variant']->product->name,
+        'variant_name' => $context['variant']->name,
+        'sku' => $context['variant']->sku,
+        'variant_attributes' => $context['variant']->attributes,
+        'unit_price' => 100_000,
+        'quantity' => 1,
+        'line_total' => 100_000,
+    ]);
+    ProductImage::query()->create([
+        'product_id' => $context['variant']->product_id,
+        'image_url' => '/storage/catalog/products/product-primary.webp',
+        'sort_order' => 0,
+        'is_primary' => true,
+    ]);
+    $this->actingAs($context['user']);
+
+    $this->getJson("/api/v1/customer/orders/{$order->id}")
+        ->assertOk()
+        ->assertJsonPath('data.items.0.id', $item->id)
+        ->assertJsonPath('data.items.0.image_url', '/storage/catalog/products/product-primary.webp');
+});
+
+test('customer order detail returns a null image when no real product image exists', function (): void {
+    $context = createOrderCheckoutContext(false);
+    $order = createExistingCustomerOrder($context['user'], $context['branch']);
+    $item = $order->items()->create([
+        'product_variant_id' => $context['variant']->id,
+        'product_name' => $context['variant']->product->name,
+        'variant_name' => $context['variant']->name,
+        'sku' => $context['variant']->sku,
+        'variant_attributes' => $context['variant']->attributes,
+        'unit_price' => 100_000,
+        'quantity' => 1,
+        'line_total' => 100_000,
+    ]);
+    ProductImage::query()->create([
+        'product_id' => $context['variant']->product_id,
+        'image_url' => '/images/product-placeholder.svg',
+        'sort_order' => 0,
+        'is_primary' => true,
+    ]);
+    $this->actingAs($context['user']);
+
+    $this->getJson("/api/v1/customer/orders/{$order->id}")
+        ->assertOk()
+        ->assertJsonPath('data.items.0.id', $item->id)
+        ->assertJsonPath('data.items.0.image_url', null);
 });
 
 test('customer order detail exposes backend derived product review eligibility', function (): void {

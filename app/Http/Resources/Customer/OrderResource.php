@@ -4,9 +4,12 @@ namespace App\Http\Resources\Customer;
 
 use App\Enums\OrderStatus;
 use App\Models\OrderItem;
+use App\Models\ProductImage;
 use App\Models\Review;
+use App\Services\Import\ProductImageImportService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Collection;
 
 class OrderResource extends JsonResource
 {
@@ -78,6 +81,7 @@ class OrderResource extends JsonResource
                 'unit_price' => $item->unit_price,
                 'quantity' => $item->quantity,
                 'line_total' => $item->line_total,
+                'image_url' => $this->itemImageUrl($item),
                 'can_review' => $this->canReviewItem($item),
                 'review' => $this->reviewData($item->review),
             ])->values()->all(),
@@ -129,6 +133,28 @@ class OrderResource extends JsonResource
         return $eligibleOrder
             && $product !== null
             && $product->reviews->isEmpty();
+    }
+
+    private function itemImageUrl(OrderItem $item): ?string
+    {
+        $variant = $item->productVariant;
+
+        if ($variant === null) {
+            return null;
+        }
+
+        return $this->primaryRealImageUrl($variant->images)
+            ?? $this->primaryRealImageUrl($variant->product?->images ?? collect());
+    }
+
+    /** @param  Collection<int, ProductImage>  $images */
+    private function primaryRealImageUrl(Collection $images): ?string
+    {
+        $realImages = $images->reject(
+            fn (ProductImage $image): bool => $image->image_url === ProductImageImportService::FALLBACK_URL,
+        );
+
+        return ($realImages->firstWhere('is_primary', true) ?? $realImages->first())?->image_url;
     }
 
     /** @return array<string, mixed>|null */

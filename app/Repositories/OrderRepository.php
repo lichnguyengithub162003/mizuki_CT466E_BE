@@ -90,7 +90,15 @@ class OrderRepository extends BaseRepository
             'items' => fn (Builder|HasMany $query): Builder|HasMany => $query->orderBy('id'),
             'items.review' => fn (HasOne $review): HasOne => $review->withTrashed(),
             'items.productVariant' => fn (BelongsTo $variant): BelongsTo => $variant->withTrashed(),
+            'items.productVariant.images' => fn (HasMany $images): HasMany => $images
+                ->orderByDesc('is_primary')
+                ->orderBy('sort_order')
+                ->orderBy('id'),
             'items.productVariant.product' => fn (BelongsTo $product): BelongsTo => $product->withTrashed(),
+            'items.productVariant.product.images' => fn (HasMany $images): HasMany => $images
+                ->orderByDesc('is_primary')
+                ->orderBy('sort_order')
+                ->orderBy('id'),
             'items.productVariant.product.reviews' => fn (HasMany $reviews): HasMany => $reviews
                 ->withTrashed()
                 ->where('user_id', $order->user_id),
