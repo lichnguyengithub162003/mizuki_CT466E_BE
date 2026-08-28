@@ -35,7 +35,10 @@ class RefundRepository extends BaseRepository
         /** @var Refund $refund */
         $refund = $this->query()->create($attributes);
 
-        return $refund->load('order:id,order_number,status,total_amount');
+        return $refund->load([
+            'order:id,order_number,status,subtotal,discount_amount,total_amount',
+            'walletTransaction:id',
+        ]);
     }
 
     /**

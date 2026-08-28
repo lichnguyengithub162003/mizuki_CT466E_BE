@@ -161,6 +161,9 @@ test('payments at or beyond expiry cancel pending orders and release only reserv
             ->and($context['order']->cancelled_at)->not->toBeNull()
             ->and($context['order']->cancellation_reason_type)->toBe('payment_expired')
             ->and($context['order']->cancellation_reason)->toBe('Thanh toán VNPay đã hết hạn')
+            ->and($context['order']->cancellation_requested_by)->toBe('system')
+            ->and($context['order']->cancellation_requested_by_user_id)->toBeNull()
+            ->and($context['order']->cancellation_requested_at)->not->toBeNull()
             ->and($context['inventory']->refresh()->reserved_quantity)->toBe(0)
             ->and($context['inventory']->quantity)->toBe(20);
     }

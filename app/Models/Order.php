@@ -38,6 +38,9 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'note',
     'cancellation_reason_type',
     'cancellation_reason',
+    'cancellation_requested_by',
+    'cancellation_requested_by_user_id',
+    'cancellation_requested_at',
     'placed_at',
     'cancelled_at',
 ])]
@@ -58,6 +61,7 @@ class Order extends Model
             'total_amount' => 'integer',
             'placed_at' => 'datetime',
             'cancelled_at' => 'datetime',
+            'cancellation_requested_at' => 'datetime',
         ];
     }
 
@@ -83,6 +87,14 @@ class Order extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function cancellationRequester(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancellation_requested_by_user_id');
     }
 
     /**

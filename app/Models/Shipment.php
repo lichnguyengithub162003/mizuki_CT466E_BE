@@ -63,6 +63,21 @@ class Shipment extends Model
     /** @var list<string> */
     private const TERMINAL_STATUSES = ['delivered', 'returned', 'cancelled', 'failed'];
 
+    /** @var array<string, string> */
+    private const STATUS_LABELS = [
+        'pending' => 'Chờ tạo vận đơn',
+        'ready_to_pick' => 'Chờ lấy hàng',
+        'picking' => 'Đang lấy hàng',
+        'in_transit' => 'Đang vận chuyển',
+        'out_for_delivery' => 'Đang giao hàng',
+        'delivery_failed' => 'Giao hàng thất bại',
+        'returning' => 'Đang hoàn hàng',
+        'delivered' => 'Đã giao hàng',
+        'returned' => 'Đã hoàn hàng',
+        'cancelled' => 'Đã hủy vận đơn',
+        'failed' => 'Vận chuyển thất bại',
+    ];
+
     /**
      * @return array<string, string>
      */
@@ -89,6 +104,11 @@ class Shipment extends Model
     public static function mappedGhnStatus(string $providerStatus): ?string
     {
         return self::GHN_STATUS_MAP[$providerStatus] ?? null;
+    }
+
+    public function statusLabel(): string
+    {
+        return self::STATUS_LABELS[$this->status] ?? $this->status;
     }
 
     public function canTransitionTo(string $status): bool

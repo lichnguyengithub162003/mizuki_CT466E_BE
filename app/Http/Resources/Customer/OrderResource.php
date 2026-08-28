@@ -7,6 +7,7 @@ use App\Models\OrderItem;
 use App\Models\ProductImage;
 use App\Models\Review;
 use App\Services\Import\ProductImageImportService;
+use App\Support\Customer\OrderAvailableActions;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Collection;
@@ -17,6 +18,7 @@ class OrderResource extends JsonResource
     public function toArray(Request $request): array
     {
         $refund = $this->refunds->first();
+        $cancellationRequester = $this->cancellationRequester;
 
         return [
             'id' => $this->id,
@@ -46,6 +48,11 @@ class OrderResource extends JsonResource
                 'name' => $this->branch->name,
                 'address' => $this->branch->address,
             ],
+            'pickup_customer' => $this->fulfillment_method === 'shipping' ? null : [
+                'name' => $this->customer_name,
+                'phone' => $this->customer_phone,
+                'address' => null,
+            ],
             'delivery_address' => $this->fulfillment_method !== 'shipping' ? null : [
                 'address_id' => $this->user_address_id,
                 'recipient_name' => $this->recipient_name,
@@ -61,12 +68,15 @@ class OrderResource extends JsonResource
                 'name' => $this->promotion?->name,
                 'discount_amount' => $this->discount_amount,
             ],
-            'shipment' => $this->shipment === null ? null : [
+            'shipment' => $this->fulfillment_method !== 'shipping' || $this->shipment === null ? null : [
+                'id' => $this->shipment->id,
                 'provider' => $this->shipment->provider,
                 'tracking_code' => $this->shipment->ghn_order_code,
                 'status' => $this->shipment->status,
+                'status_label' => $this->shipment->statusLabel(),
                 'shipping_fee' => $this->shipment->shipping_fee,
                 'expected_delivery_at' => $this->shipment->expected_delivery_at?->toISOString(),
+                'current_location' => $this->shipmentCurrentLocation(),
                 'shipped_at' => $this->shipment->shipped_at?->toISOString(),
                 'delivered_at' => $this->shipment->delivered_at?->toISOString(),
                 'cancelled_at' => $this->shipment->cancelled_at?->toISOString(),
@@ -74,10 +84,15 @@ class OrderResource extends JsonResource
             'items' => $this->items->map(fn (OrderItem $item): array => [
                 'id' => $item->id,
                 'product_variant_id' => $item->product_variant_id,
+                'product_id' => $item->product_id ?? $item->productVariant?->product?->id,
+                'product_slug' => $item->product_slug ?? $item->productVariant?->product?->slug,
                 'product_name' => $item->product_name,
                 'variant_name' => $item->variant_name,
                 'sku' => $item->sku,
                 'variant_attributes' => $item->variant_attributes,
+                'brand' => $this->itemBrand($item),
+                'original_unit_price' => $item->original_unit_price,
+                'final_unit_price' => $item->unit_price,
                 'unit_price' => $item->unit_price,
                 'quantity' => $item->quantity,
                 'line_total' => $item->line_total,
@@ -86,25 +101,32 @@ class OrderResource extends JsonResource
                 'review' => $this->reviewData($item->review),
             ])->values()->all(),
             'subtotal' => $this->subtotal,
+            'product_discount_amount' => 0,
             'discount_amount' => $this->discount_amount,
-            'shipping_fee' => $this->shipping_fee,
+            'shipping_fee' => $this->fulfillment_method === 'shipping' ? $this->shipping_fee : 0,
+            'shipping_discount_amount' => 0,
+            'voucher_discount_amount' => $this->discount_amount,
+            'total' => $this->total_amount,
             'total_amount' => $this->total_amount,
+            'cancellation_requested_by' => $this->cancellation_requested_by,
+            'cancellation_requested_at' => $this->cancellation_requested_at?->toISOString(),
+            'cancellation_reason' => $this->cancellation_reason,
+            'cancellation_reason_type' => $this->cancellation_reason_type,
+            'cancellation_requester_name' => $cancellationRequester?->name,
+            'cancellation_requester_type' => $cancellationRequester?->role?->value
+                ?? $this->cancellation_requested_by,
             'cancellation' => $this->status->value !== 'cancelled' ? null : [
                 'reason_type' => $this->cancellation_reason_type,
                 'reason' => $this->cancellation_reason,
+                'requested_by' => $this->cancellation_requested_by,
+                'requested_at' => $this->cancellation_requested_at?->toISOString(),
+                'requester_name' => $cancellationRequester?->name,
+                'requester_type' => $cancellationRequester?->role?->value
+                    ?? $this->cancellation_requested_by,
                 'cancelled_at' => $this->cancelled_at?->toISOString(),
             ],
-            'refund' => $refund === null ? null : [
-                'id' => $refund->id,
-                'refund_number' => $refund->refund_number,
-                'status' => $refund->status,
-                'status_label' => $this->refundStatusLabel((string) $refund->status),
-                'requested_amount' => $refund->requested_amount,
-                'approved_amount' => $refund->approved_amount,
-                'review_note' => $refund->review_note,
-                'reviewed_at' => $refund->reviewed_at?->toISOString(),
-                'refunded_at' => $refund->refunded_at?->toISOString(),
-            ],
+            'refund' => $refund === null ? null : (new RefundResource($refund))->resolve($request),
+            'available_actions' => OrderAvailableActions::for($this->resource),
             'placed_at' => $this->placed_at?->toISOString(),
             'cancelled_at' => $this->cancelled_at?->toISOString(),
             'created_at' => $this->created_at?->toISOString(),
@@ -112,15 +134,24 @@ class OrderResource extends JsonResource
         ];
     }
 
-    private function refundStatusLabel(string $status): string
+    /** @return array{id: int|null, name: string|null, slug: string|null}|null */
+    private function itemBrand(OrderItem $item): ?array
     {
-        return match ($status) {
-            'requested' => 'Chờ duyệt',
-            'approved' => 'Đã duyệt',
-            'rejected' => 'Đã từ chối',
-            'refunded' => 'Đã hoàn tiền',
-            default => $status,
-        };
+        if ($item->brand_id !== null || $item->brand_name !== null || $item->brand_slug !== null) {
+            return [
+                'id' => $item->brand_id,
+                'name' => $item->brand_name,
+                'slug' => $item->brand_slug,
+            ];
+        }
+
+        $brand = $item->productVariant?->product?->brand;
+
+        return $brand === null ? null : [
+            'id' => $brand->id,
+            'name' => $brand->name,
+            'slug' => $brand->slug,
+        ];
     }
 
     private function canReviewItem(OrderItem $item): bool
@@ -155,6 +186,13 @@ class OrderResource extends JsonResource
         );
 
         return ($realImages->firstWhere('is_primary', true) ?? $realImages->first())?->image_url;
+    }
+
+    private function shipmentCurrentLocation(): ?string
+    {
+        $location = data_get($this->shipment?->provider_response, 'CurrentWarehouse.Name');
+
+        return is_string($location) && filled($location) ? $location : null;
     }
 
     /** @return array<string, mixed>|null */

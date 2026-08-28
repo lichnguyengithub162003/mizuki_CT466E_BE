@@ -86,7 +86,10 @@ class OrderRepository extends BaseRepository
             'userAddress',
             'payment',
             'shipment',
+            'cancellationRequester:id,name,role',
             'refunds' => fn (Builder|HasMany $query): Builder|HasMany => $query->orderByDesc('id'),
+            'refunds.order:id,order_number,subtotal,discount_amount',
+            'refunds.walletTransaction:id',
             'items' => fn (Builder|HasMany $query): Builder|HasMany => $query->orderBy('id'),
             'items.review' => fn (HasOne $review): HasOne => $review->withTrashed(),
             'items.productVariant' => fn (BelongsTo $variant): BelongsTo => $variant->withTrashed(),
@@ -95,6 +98,7 @@ class OrderRepository extends BaseRepository
                 ->orderBy('sort_order')
                 ->orderBy('id'),
             'items.productVariant.product' => fn (BelongsTo $product): BelongsTo => $product->withTrashed(),
+            'items.productVariant.product.brand' => fn (BelongsTo $brand): BelongsTo => $brand->withTrashed(),
             'items.productVariant.product.images' => fn (HasMany $images): HasMany => $images
                 ->orderByDesc('is_primary')
                 ->orderBy('sort_order')
@@ -117,7 +121,7 @@ class OrderRepository extends BaseRepository
                 isset($filters['status']),
                 fn (Builder $query): Builder => $query->where('status', $filters['status']),
             )
-            ->with('payment')
+            ->with(['payment', 'shipment', 'refunds'])
             ->withCount('items')
             ->orderByDesc('created_at')
             ->orderByDesc('id')
@@ -157,13 +161,23 @@ class OrderRepository extends BaseRepository
         }
     }
 
-    public function markCancelled(Order $order, string $reasonType, string $reason): Order
-    {
+    public function markCancelled(
+        Order $order,
+        string $reasonType,
+        string $reason,
+        string $requestedBy,
+        ?int $requestedByUserId,
+    ): Order {
+        $cancelledAt = now();
+
         $order->fill([
             'status' => OrderStatus::Cancelled,
             'cancellation_reason_type' => $reasonType,
             'cancellation_reason' => $reason,
-            'cancelled_at' => now(),
+            'cancellation_requested_by' => $requestedBy,
+            'cancellation_requested_by_user_id' => $requestedByUserId,
+            'cancellation_requested_at' => $cancelledAt,
+            'cancelled_at' => $cancelledAt,
         ])->save();
 
         return $this->loadDetails($order->refresh());

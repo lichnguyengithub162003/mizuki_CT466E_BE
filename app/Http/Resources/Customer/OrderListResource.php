@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Customer;
 
+use App\Support\Customer\OrderAvailableActions;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -21,9 +22,14 @@ class OrderListResource extends JsonResource
             'payment_status_label' => $this->payment?->status->label(),
             'item_count' => (int) $this->items_count,
             'subtotal' => $this->subtotal,
+            'product_discount_amount' => 0,
             'discount_amount' => $this->discount_amount,
-            'shipping_fee' => $this->shipping_fee,
+            'shipping_fee' => $this->fulfillment_method === 'shipping' ? $this->shipping_fee : 0,
+            'shipping_discount_amount' => 0,
+            'voucher_discount_amount' => $this->discount_amount,
+            'total' => $this->total_amount,
             'total_amount' => $this->total_amount,
+            'available_actions' => OrderAvailableActions::for($this->resource),
             'placed_at' => $this->placed_at?->toISOString(),
             'created_at' => $this->created_at?->toISOString(),
         ];

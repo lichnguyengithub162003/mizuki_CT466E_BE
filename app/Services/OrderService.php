@@ -205,6 +205,8 @@ class OrderService extends BaseService
                 'checkout_idempotency_key_hash' => $idempotencyKeyHash,
                 'checkout_request_hash' => $requestHash,
                 'user_id' => $user->id,
+                'customer_name' => $user->name,
+                'customer_phone' => $user->phone,
                 'branch_id' => $cart->branch_id,
                 'created_by_user_id' => null,
                 'user_address_id' => $address?->id,
@@ -408,7 +410,13 @@ class OrderService extends BaseService
             $reason = trim((string) ($data['reason'] ?? '')) ?: $reasonType->label();
 
             $this->orders->releaseReservedInventory($order);
-            $cancelledOrder = $this->orders->markCancelled($order, $reasonType->value, $reason);
+            $cancelledOrder = $this->orders->markCancelled(
+                $order,
+                $reasonType->value,
+                $reason,
+                'customer',
+                $user->id,
+            );
 
             return ['order' => $cancelledOrder, 'previous_status' => $previousStatus];
         });
@@ -461,12 +469,21 @@ class OrderService extends BaseService
     /** @return array<string, mixed> */
     private function snapshotItem(CartItem $item): array
     {
+        $product = $item->productVariant->product;
+        $brand = $product->brand;
+
         return [
             'product_variant_id' => $item->product_variant_id,
-            'product_name' => $item->productVariant->product->name,
+            'product_id' => $product->id,
+            'product_slug' => $product->slug,
+            'brand_id' => $brand?->id,
+            'brand_name' => $brand?->name,
+            'brand_slug' => $brand?->slug,
+            'product_name' => $product->name,
             'variant_name' => $item->productVariant->name,
             'sku' => $item->productVariant->sku,
             'variant_attributes' => $item->productVariant->attributes,
+            'original_unit_price' => (int) $item->productVariant->price,
             'unit_price' => (int) $item->effective_price,
             'quantity' => $item->quantity,
             'line_total' => (int) $item->subtotal,

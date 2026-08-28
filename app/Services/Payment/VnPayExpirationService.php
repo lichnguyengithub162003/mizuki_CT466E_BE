@@ -63,6 +63,8 @@ class VnPayExpirationService extends BaseService
             $order,
             'payment_expired',
             'Thanh toán VNPay đã hết hạn',
+            'system',
+            null,
         );
 
         return true;

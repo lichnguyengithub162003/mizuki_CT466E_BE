@@ -66,7 +66,8 @@ class CartRepository extends BaseRepository
             'branch:id,name,address,ghn_district_id,ghn_ward_code,is_active',
             'promotion:id,code,name,discount_type,discount_value,max_discount_amount,minimum_order_amount',
             'items' => fn (Builder|HasMany $itemQuery): Builder|HasMany => $itemQuery->orderBy('id'),
-            'items.productVariant.product:id,name,slug,is_active,updated_at',
+            'items.productVariant.product:id,brand_id,name,slug,is_active,updated_at',
+            'items.productVariant.product.brand:id,name,slug',
             'items.productVariant.product.images' => fn (Builder|HasMany $imageQuery): Builder|HasMany => $imageQuery
                 ->where('is_primary', true)
                 ->orderBy('sort_order'),
