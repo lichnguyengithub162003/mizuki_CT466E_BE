@@ -1,10 +1,19 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Admin\AppointmentController as AdminAppointmentController;
+use App\Http\Controllers\Api\V1\Admin\BrandController as AdminBrandController;
+use App\Http\Controllers\Api\V1\Admin\BranchController as AdminBranchController;
+use App\Http\Controllers\Api\V1\Admin\CategoryController as AdminCategoryController;
+use App\Http\Controllers\Api\V1\Admin\CustomerController as AdminCustomerController;
+use App\Http\Controllers\Api\V1\Admin\DashboardController as AdminDashboardController;
+use App\Http\Controllers\Api\V1\Admin\InventoryController as AdminInventoryController;
 use App\Http\Controllers\Api\V1\Admin\OrderController as AdminOrderController;
+use App\Http\Controllers\Api\V1\Admin\ProductController as AdminProductController;
 use App\Http\Controllers\Api\V1\Admin\PromotionController as AdminPromotionController;
 use App\Http\Controllers\Api\V1\Admin\RefundController as AdminRefundController;
+use App\Http\Controllers\Api\V1\Admin\ReviewController as AdminReviewController;
 use App\Http\Controllers\Api\V1\Admin\SkinProfileController as AdminSkinProfileController;
+use App\Http\Controllers\Api\V1\Admin\StaffController as AdminStaffController;
 use App\Http\Controllers\Api\V1\Auth\CustomerAuthController;
 use App\Http\Controllers\Api\V1\BranchController;
 use App\Http\Controllers\Api\V1\Cashier\PosController;
@@ -160,6 +169,38 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
 
     // Admin routes
     Route::prefix('admin')->name('admin.')->middleware('auth:sanctum')->group(function (): void {
+        Route::middleware('role:branch_manager,super_admin')->group(function (): void {
+            Route::get('dashboard', AdminDashboardController::class)->name('dashboard');
+
+            Route::get('customers', [AdminCustomerController::class, 'index'])->name('customers.index');
+            Route::get('customers/{customer}', [AdminCustomerController::class, 'show'])
+                ->whereNumber('customer')->name('customers.show');
+
+            Route::apiResource('products', AdminProductController::class)->except('destroy');
+            Route::apiResource('categories', AdminCategoryController::class)->except('destroy');
+            Route::apiResource('brands', AdminBrandController::class)->except('destroy');
+
+            Route::get('inventory', [AdminInventoryController::class, 'index'])->name('inventory.index');
+            Route::get('inventory/{inventory}/transactions', [AdminInventoryController::class, 'transactions'])
+                ->whereNumber('inventory')->name('inventory.transactions');
+            Route::post('inventory/{inventory}/adjust', [AdminInventoryController::class, 'adjust'])
+                ->whereNumber('inventory')->name('inventory.adjust');
+
+            Route::get('branches', [AdminBranchController::class, 'index'])->name('branches.index');
+            Route::get('branches/{branch}', [AdminBranchController::class, 'show'])
+                ->whereNumber('branch')->name('branches.show');
+            Route::patch('branches/{branch}', [AdminBranchController::class, 'update'])
+                ->whereNumber('branch')->name('branches.update');
+
+            Route::apiResource('staff', AdminStaffController::class)->except('destroy');
+
+            Route::get('reviews', [AdminReviewController::class, 'index'])->name('reviews.index');
+            Route::get('reviews/{review}', [AdminReviewController::class, 'show'])
+                ->whereNumber('review')->name('reviews.show');
+            Route::patch('reviews/{review}', [AdminReviewController::class, 'update'])
+                ->whereNumber('review')->name('reviews.update');
+        });
+
         Route::prefix('promotions')
             ->name('promotions.')
             ->middleware('role:branch_manager,super_admin')
