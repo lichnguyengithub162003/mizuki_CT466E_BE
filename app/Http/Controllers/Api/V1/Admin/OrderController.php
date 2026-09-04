@@ -47,6 +47,15 @@ class OrderController extends BaseController
         );
     }
 
+    public function counts(Request $request): JsonResponse
+    {
+        return $this->successResponse(
+            request: $request,
+            resource: new JsonResource($this->orders->counts($request->user())),
+            message: 'Lấy số lượng đơn hàng theo trạng thái thành công!',
+        );
+    }
+
     /**
      * @OA\Get(
      *     path="/api/v1/admin/orders/{id}",

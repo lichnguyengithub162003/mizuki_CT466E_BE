@@ -19,8 +19,8 @@ class OrderResource extends JsonResource
         return [
             'id' => $this->id,
             'order_number' => $this->order_number,
-            'status' => $this->status->value,
-            'status_label' => $this->status->label(),
+            'status' => $this->status === OrderStatus::Delivered ? 'completed' : $this->status->value,
+            'status_label' => $this->status === OrderStatus::Delivered ? 'Hoàn thành' : $this->status->label(),
             'customer' => [
                 'id' => $this->user?->id,
                 'name' => $this->user?->name ?? $this->customer_name,

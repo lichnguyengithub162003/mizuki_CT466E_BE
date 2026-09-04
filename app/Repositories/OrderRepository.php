@@ -8,6 +8,7 @@ use App\Models\BranchInventory;
 use App\Models\Order;
 use App\Models\Shipment;
 use App\Models\UserAddress;
+use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -200,7 +201,12 @@ class OrderRepository extends BaseRepository
             )
             ->when(
                 isset($filters['status']),
-                fn (Builder $query): Builder => $query->where('status', $filters['status']),
+                fn (Builder $query): Builder => $query->where(
+                    'status',
+                    $filters['status'] === 'completed'
+                        ? OrderStatus::Delivered->value
+                        : $filters['status'],
+                ),
             )
             ->when(
                 filled($filters['keyword'] ?? null),
@@ -208,12 +214,25 @@ class OrderRepository extends BaseRepository
                     $keyword = trim((string) $filters['keyword']);
                     $query->where(function (Builder $nested) use ($keyword): void {
                         $nested->where('order_number', 'like', "%{$keyword}%")
+                            ->orWhere('customer_name', 'like', "%{$keyword}%")
+                            ->orWhere('customer_phone', 'like', "%{$keyword}%")
+                            ->orWhere('recipient_name', 'like', "%{$keyword}%")
+                            ->orWhere('recipient_phone', 'like', "%{$keyword}%")
                             ->orWhereHas('user', function (Builder $userQuery) use ($keyword): void {
                                 $userQuery->where('name', 'like', "%{$keyword}%")
-                                    ->orWhere('email', 'like', "%{$keyword}%");
+                                    ->orWhere('email', 'like', "%{$keyword}%")
+                                    ->orWhere('phone', 'like', "%{$keyword}%");
                             });
                     });
                 },
+            )
+            ->when(
+                filled($filters['date_from'] ?? null),
+                fn (Builder $query): Builder => $query->where('created_at', '>=', CarbonImmutable::parse($filters['date_from'])->startOfDay()),
+            )
+            ->when(
+                filled($filters['date_to'] ?? null),
+                fn (Builder $query): Builder => $query->where('created_at', '<=', CarbonImmutable::parse($filters['date_to'])->endOfDay()),
             )
             ->with([
                 'user:id,name,email,phone',
@@ -233,9 +252,43 @@ class OrderRepository extends BaseRepository
                 'shipment',
                 'refunds',
             ])
-            ->orderByDesc('created_at')
-            ->orderByDesc('id')
+            ->when(filled($filters['sort_by'] ?? null), function (Builder $query) use ($filters): void {
+                $query->orderBy(
+                    (string) $filters['sort_by'],
+                    ($filters['sort_direction'] ?? 'desc') === 'asc' ? 'asc' : 'desc',
+                )->orderBy('id', ($filters['sort_direction'] ?? 'desc') === 'asc' ? 'asc' : 'desc');
+            }, fn (Builder $query): Builder => ($filters['sort'] ?? 'newest') === 'oldest'
+                ? $query->orderBy('created_at')->orderBy('id')
+                : $query->orderByDesc('created_at')->orderByDesc('id'))
             ->paginate($perPage);
+    }
+
+    /** @return array{pending: int, processing: int, shipping: int, refund: int} */
+    public function countsForAdmin(UserRole $role, ?int $branchId): array
+    {
+        $counts = $this->adminScope($this->query(), $role, $branchId)
+            ->selectRaw(
+                'SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS pending_count, '.
+                'SUM(CASE WHEN status IN (?, ?) THEN 1 ELSE 0 END) AS processing_count, '.
+                'SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS shipping_count, '.
+                'SUM(CASE WHEN status IN (?, ?) THEN 1 ELSE 0 END) AS refund_count',
+                [
+                    OrderStatus::Pending->value,
+                    OrderStatus::Confirmed->value,
+                    OrderStatus::Processing->value,
+                    OrderStatus::Shipping->value,
+                    OrderStatus::RefundRequested->value,
+                    OrderStatus::Refunded->value,
+                ],
+            )
+            ->first();
+
+        return [
+            'pending' => (int) ($counts?->pending_count ?? 0),
+            'processing' => (int) ($counts?->processing_count ?? 0),
+            'shipping' => (int) ($counts?->shipping_count ?? 0),
+            'refund' => (int) ($counts?->refund_count ?? 0),
+        ];
     }
 
     public function findForAdmin(

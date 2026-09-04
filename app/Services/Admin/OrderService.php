@@ -58,6 +58,14 @@ class OrderService extends BaseService
         );
     }
 
+    /** @return array{pending: int, processing: int, shipping: int, refund: int} */
+    public function counts(User $user): array
+    {
+        Gate::forUser($user)->authorize('viewAny', Order::class);
+
+        return $this->orders->countsForAdmin($user->role, $user->branch_id);
+    }
+
     public function detail(User $user, int $orderId): ?Order
     {
         $order = $this->orders->findForAdmin($orderId, $user->role, $user->branch_id);

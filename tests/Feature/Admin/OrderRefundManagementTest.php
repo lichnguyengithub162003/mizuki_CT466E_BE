@@ -82,6 +82,7 @@ function createAdminManagedRefund(Order $order, User $customer, string $status =
 test('guest and customer cannot access admin order and refund endpoints', function (): void {
     $paths = [
         ['GET', '/api/v1/admin/orders'],
+        ['GET', '/api/v1/admin/orders/counts'],
         ['GET', '/api/v1/admin/orders/1'],
         ['POST', '/api/v1/admin/orders/1/confirm'],
         ['POST', '/api/v1/admin/orders/1/process'],
@@ -557,7 +558,7 @@ test('admin completes pickup COD atomically and rejects manual shipping completi
 
     $this->postJson("/api/v1/admin/orders/{$pickup->id}/complete")
         ->assertOk()
-        ->assertJsonPath('data.status', 'delivered')
+        ->assertJsonPath('data.status', 'completed')
         ->assertJsonPath('data.payment.status', 'paid')
         ->assertJsonPath('data.allowed_actions', []);
 
