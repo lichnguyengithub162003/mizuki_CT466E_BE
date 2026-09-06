@@ -22,7 +22,7 @@ class CategoryController extends BaseController
 
     public function store(CategoryMutationRequest $request): JsonResponse
     {
-        return $this->successResponse($request, new CategoryResource($this->portal->createCategory($request->validated())), 'Tạo danh mục thành công!', 201);
+        return $this->successResponse($request, new CategoryResource($this->portal->createCategory($request->user(), $request->validated())), 'Tạo danh mục thành công!', 201);
     }
 
     public function show(Request $request, int $category): JsonResponse
@@ -33,7 +33,7 @@ class CategoryController extends BaseController
 
     public function update(CategoryMutationRequest $request, int $category): JsonResponse
     {
-        $item = $this->portal->updateCategory($category, $request->validated());
+        $item = $this->portal->updateCategory($request->user(), $category, $request->validated());
         return $item === null ? $this->errorResponse('Không tìm thấy danh mục', 404) : $this->successResponse($request, new CategoryResource($item), 'Cập nhật danh mục thành công!');
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Catalog;
 
+use App\Http\Resources\Concerns\SerializesMedia;
 use App\Models\BranchInventory;
 use App\Models\ProductImage;
 use App\Models\ProductVariant;
@@ -11,6 +12,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class ProductDetailResource extends JsonResource
 {
+    use SerializesMedia;
+
     /**
      * @return array<string, mixed>
      */
@@ -43,14 +46,8 @@ class ProductDetailResource extends JsonResource
                 $right->id,
             ]);
         $images = $displayImages
-            ->map(fn (ProductImage $image): array => [
-                'id' => $image->id,
-                'product_variant_id' => $image->product_variant_id,
-                'image_url' => $image->image_url,
-                'alt_text' => $image->alt_text,
-                'sort_order' => $image->sort_order,
-                'is_primary' => $image->is_primary,
-            ])
+            ->map(fn (ProductImage $image): array => $this->serializeImage($image))
+            ->filter(fn (array $image): bool => $image['image_url'] !== null)
             ->values()
             ->all();
 
@@ -58,7 +55,9 @@ class ProductDetailResource extends JsonResource
             $images[] = [
                 'id' => null,
                 'product_variant_id' => null,
-                'image_url' => ProductImageImportService::FALLBACK_URL,
+                'image_url' => $this->mediaUrl(ProductImageImportService::FALLBACK_URL),
+                'thumb_url' => $this->mediaUrl(ProductImageImportService::FALLBACK_URL, 'thumb'),
+                'detail_url' => $this->mediaUrl(ProductImageImportService::FALLBACK_URL, 'detail'),
                 'alt_text' => $this->name,
                 'sort_order' => 0,
                 'is_primary' => true,
@@ -97,7 +96,8 @@ class ProductDetailResource extends JsonResource
                 'id' => $this->brand->id,
                 'name' => $this->brand->name,
                 'slug' => $this->brand->slug,
-                'logo_url' => $this->brand->logo_url,
+                'logo_url' => $this->brandLogoUrl($this->brand->logo_url, $this->brand->slug, $this->brand->name),
+                'logo_rendition_url' => $this->brandLogoUrl($this->brand->logo_url, $this->brand->slug, $this->brand->name, 'brand_logo'),
                 'active_product_count' => (int) $this->brand->active_product_count,
                 'average_rating' => round((float) $this->brand->average_rating, 1),
                 'review_count' => (int) $this->brand->review_count,
@@ -171,6 +171,21 @@ class ProductDetailResource extends JsonResource
                 ])
                 ->values()
                 ->all(),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function serializeImage(ProductImage $image): array
+    {
+        return [
+            'id' => $image->id,
+            'product_variant_id' => $image->product_variant_id,
+            'image_url' => $this->mediaUrl($image->image_url),
+            'thumb_url' => $this->mediaUrl($image->image_url, 'thumb'),
+            'detail_url' => $this->mediaUrl($image->image_url, 'detail'),
+            'alt_text' => $image->alt_text,
+            'sort_order' => $image->sort_order,
+            'is_primary' => $image->is_primary,
         ];
     }
 }

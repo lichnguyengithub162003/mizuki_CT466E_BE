@@ -27,6 +27,7 @@ class StaffMutationRequest extends FormRequest
             'role' => [$creating ? 'required' : 'sometimes', Rule::enum(UserRole::class), Rule::notIn([UserRole::Customer->value])],
             'branch_id' => ['sometimes', 'nullable', 'integer', 'exists:branches,id'],
             'avatar' => ['sometimes', 'nullable', 'string', 'max:2048'],
+            'avatar_upload_token' => ['sometimes', 'uuid'],
         ];
     }
 }

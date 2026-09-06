@@ -2,11 +2,14 @@
 
 namespace App\Http\Resources\Admin;
 
+use App\Http\Resources\Concerns\SerializesMedia;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class ProductResource extends JsonResource
 {
+    use SerializesMedia;
+
     /** @return array<string, mixed> */
     public function toArray(Request $request): array
     {
@@ -24,7 +27,7 @@ class ProductResource extends JsonResource
             'origin_country' => $this->origin_country,
             'is_active' => (bool) $this->is_active,
             'is_featured' => (bool) $this->is_featured,
-            'image_url' => $image?->image_url,
+            'image_url' => $this->mediaUrl($image?->image_url),
             'source' => $this->source,
             'external_id' => $this->external_id,
             'source_url' => $this->source_url,
@@ -35,7 +38,7 @@ class ProductResource extends JsonResource
             'images' => $this->whenLoaded('images', fn () => $this->images->map(fn ($item): array => [
                 'id' => $item->id,
                 'product_variant_id' => $item->product_variant_id,
-                'image_url' => $item->image_url,
+                'image_url' => $this->mediaUrl($item->image_url),
                 'alt_text' => $item->alt_text,
                 'sort_order' => $item->sort_order,
                 'is_primary' => (bool) $item->is_primary,

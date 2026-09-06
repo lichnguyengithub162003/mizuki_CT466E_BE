@@ -22,7 +22,7 @@ class BrandController extends BaseController
 
     public function store(BrandMutationRequest $request): JsonResponse
     {
-        return $this->successResponse($request, new BrandResource($this->portal->createBrand($request->validated())), 'Tạo thương hiệu thành công!', 201);
+        return $this->successResponse($request, new BrandResource($this->portal->createBrand($request->user(), $request->validated())), 'Tạo thương hiệu thành công!', 201);
     }
 
     public function show(Request $request, int $brand): JsonResponse
@@ -33,7 +33,7 @@ class BrandController extends BaseController
 
     public function update(BrandMutationRequest $request, int $brand): JsonResponse
     {
-        $item = $this->portal->updateBrand($brand, $request->validated());
+        $item = $this->portal->updateBrand($request->user(), $brand, $request->validated());
         return $item === null ? $this->errorResponse('Không tìm thấy thương hiệu', 404) : $this->successResponse($request, new BrandResource($item), 'Cập nhật thương hiệu thành công!');
     }
 }

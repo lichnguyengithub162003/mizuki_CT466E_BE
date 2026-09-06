@@ -18,6 +18,7 @@ use App\Models\Product;
 use App\Models\Refund;
 use App\Models\Review;
 use App\Models\User;
+use App\Support\MediaUrl;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -26,6 +27,8 @@ use Illuminate\Support\Facades\DB;
 
 class AdminPortalRepository
 {
+    public function __construct(private readonly MediaUrl $mediaUrl) {}
+
     /** @param array<string, mixed> $filters @return array<string, mixed> */
     public function dashboard(User $actor, array $filters): array
     {
@@ -117,7 +120,7 @@ class AdminPortalRepository
                 'product_name' => (string) $row->product_name,
                 'quantity' => (int) $row->quantity,
                 'revenue' => (int) $row->revenue,
-                'image_url' => $row->product_id === null ? null : ($images->get($row->product_id)?->image_url),
+                'image_url' => $row->product_id === null ? null : $this->mediaUrl->resolve($images->get($row->product_id)?->image_url),
             ])->all(),
         ];
     }

@@ -77,7 +77,7 @@ test('product search returns products matching the keyword', function (): void {
     createSearchProduct($category, $brand, 'Tinh chất Serum dưỡng ẩm', price: 220_000);
     createSearchProduct($category, $brand, 'Kem chống nắng', price: 250_000);
 
-    $this->getJson('/api/v1/products/search?keyword=serum')
+    $response = $this->getJson('/api/v1/products/search?keyword=serum')
         ->assertOk()
         ->assertJsonPath('success', true)
         ->assertJsonPath('message', 'Tìm kiếm thành công!')
@@ -85,13 +85,16 @@ test('product search returns products matching the keyword', function (): void {
         ->assertJsonStructure([
             'success',
             'data' => [[
-                'id', 'name', 'slug', 'primary_image_url', 'minimum_price',
+                'id', 'name', 'slug', 'primary_image_url', 'primary_image_thumb_url', 'minimum_price',
             ]],
             'message',
             'meta',
         ])
         ->assertJsonMissingPath('meta.pagination')
         ->assertJsonMissing(['name' => 'Kem chống nắng']);
+
+    expect($response->json('data.0.primary_image_thumb_url'))
+        ->toBe($response->json('data.0.primary_image_url'));
 });
 
 test('product search respects the requested result limit', function (): void {

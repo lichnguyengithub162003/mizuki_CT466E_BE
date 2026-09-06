@@ -2,11 +2,14 @@
 
 namespace App\Http\Resources\Admin;
 
+use App\Http\Resources\Concerns\SerializesMedia;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class CustomerResource extends JsonResource
 {
+    use SerializesMedia;
+
     /** @return array<string, mixed> */
     public function toArray(Request $request): array
     {
@@ -15,7 +18,8 @@ class CustomerResource extends JsonResource
             'name' => $this->name,
             'email' => $this->email,
             'phone' => $this->phone,
-            'avatar' => $this->avatar,
+            'avatar' => $this->mediaUrl($this->avatar),
+            'avatar_rendition_url' => $this->mediaUrl($this->avatar, 'avatar'),
             'order_count' => (int) ($this->orders_count ?? 0),
             'total_spent' => (int) ($this->total_spent ?? 0),
             'appointment_count' => (int) ($this->appointments_count ?? 0),

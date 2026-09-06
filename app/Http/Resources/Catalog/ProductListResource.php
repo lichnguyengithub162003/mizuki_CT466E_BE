@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Catalog;
 
+use App\Http\Resources\Concerns\SerializesMedia;
 use App\Models\ProductVariant;
 use App\Services\Catalog\ProductAvailabilityResolver;
 use App\Services\Import\ProductImageImportService;
@@ -10,6 +11,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class ProductListResource extends JsonResource
 {
+    use SerializesMedia;
+
     /**
      * @return array<string, mixed>
      */
@@ -25,8 +28,9 @@ class ProductListResource extends JsonResource
         $realImages = $this->images->reject(
             fn ($image): bool => $image->image_url === ProductImageImportService::FALLBACK_URL,
         );
-        $primaryImage = ($realImages->firstWhere('is_primary', true) ?? $realImages->first())?->image_url
+        $primaryImageReference = ($realImages->firstWhere('is_primary', true) ?? $realImages->first())?->image_url
             ?? ProductImageImportService::FALLBACK_URL;
+        $primaryImage = $this->mediaUrl($primaryImageReference);
         $rating = $this->resource->effectiveRating();
         $reviewCount = $this->resource->effectiveReviewCount();
 
@@ -45,6 +49,8 @@ class ProductListResource extends JsonResource
             ],
             'primary_image' => $primaryImage,
             'primary_image_url' => $primaryImage,
+            'primary_image_card_url' => $this->mediaUrl($primaryImageReference, 'card'),
+            'primary_image_thumb_url' => $this->mediaUrl($primaryImageReference, 'thumb'),
             'price' => $price,
             'original_price' => $originalPrice,
             'minimum_price' => (int) $this->minimum_price,

@@ -15,3 +15,7 @@ Schedule::command('refunds:auto-approve')
 Schedule::command('payments:expire-vnpay')
     ->everyMinute()
     ->withoutOverlapping();
+
+Schedule::command('media:cleanup-staging')
+    ->hourly()
+    ->withoutOverlapping();

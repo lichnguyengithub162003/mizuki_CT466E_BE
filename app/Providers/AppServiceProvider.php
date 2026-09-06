@@ -2,11 +2,22 @@
 
 namespace App\Providers;
 
+use App\Services\Media\CloudinaryClientContract;
+use App\Services\Media\CloudinaryPublicMediaService;
+use App\Services\Media\CloudinarySdkClient;
+use App\Services\Media\LocalPrivateFileService;
+use App\Services\Media\LocalPublicMediaService;
+use App\Services\Media\LocalStagingMediaStorage;
+use App\Services\Media\PrivateFileServiceContract;
+use App\Services\Media\PublicMediaServiceContract;
+use App\Services\Media\StagingMediaStorageContract;
+use App\Support\MediaUrl;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -15,7 +26,17 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(MediaUrl::class);
+        $this->app->bind(CloudinaryClientContract::class, CloudinarySdkClient::class);
+        $this->app->bind(PublicMediaServiceContract::class, function ($app): PublicMediaServiceContract {
+            return match (config('media.public_driver', 'local')) {
+                'local' => $app->make(LocalPublicMediaService::class),
+                'cloudinary' => $app->make(CloudinaryPublicMediaService::class),
+                default => throw new InvalidArgumentException('MEDIA_PUBLIC_DRIVER must be local or cloudinary.'),
+            };
+        });
+        $this->app->bind(PrivateFileServiceContract::class, LocalPrivateFileService::class);
+        $this->app->bind(StagingMediaStorageContract::class, LocalStagingMediaStorage::class);
     }
 
     /**

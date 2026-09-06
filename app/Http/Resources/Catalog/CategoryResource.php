@@ -2,11 +2,14 @@
 
 namespace App\Http\Resources\Catalog;
 
+use App\Http\Resources\Concerns\SerializesMedia;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class CategoryResource extends JsonResource
 {
+    use SerializesMedia;
+
     /**
      * @return array<string, mixed>
      */
@@ -18,22 +21,13 @@ class CategoryResource extends JsonResource
             'name' => $this->name,
             'slug' => $this->slug,
             'thumbnail_url' => $this->thumbnailUrl(),
+            'image_rendition_url' => $this->thumbnailUrl('category'),
             'children' => self::collection($this->whenLoaded('children')),
         ];
     }
 
-    private function thumbnailUrl(): ?string
+    private function thumbnailUrl(?string $preset = null): ?string
     {
-        $path = $this->thumbnail_url;
-
-        if (! is_string($path) || trim($path) === '') {
-            return null;
-        }
-
-        if (filter_var($path, FILTER_VALIDATE_URL) !== false) {
-            return $path;
-        }
-
-        return url('/'.ltrim($path, '/'));
+        return $this->mediaUrl(is_string($this->thumbnail_url) ? $this->thumbnail_url : null, $preset);
     }
 }

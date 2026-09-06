@@ -21,7 +21,9 @@ class BrandMutationRequest extends FormRequest
             'name' => [$creating ? 'required' : 'sometimes', 'string', 'max:255'],
             'slug' => [$creating ? 'required' : 'sometimes', 'string', 'max:255', Rule::unique('brands', 'slug')->ignore($this->route('brand'))],
             'logo_url' => ['sometimes', 'nullable', 'string', 'max:2048'],
+            'logo_upload_token' => ['sometimes', 'uuid'],
             'banner_image' => ['sometimes', 'nullable', 'string', 'max:2048'],
+            'banner_upload_token' => ['sometimes', 'uuid'],
             'description' => ['sometimes', 'nullable', 'string'],
             'is_active' => ['sometimes', 'boolean'],
         ];

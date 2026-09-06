@@ -1,16 +1,18 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Admin\AppointmentController as AdminAppointmentController;
-use App\Http\Controllers\Api\V1\Admin\BrandController as AdminBrandController;
 use App\Http\Controllers\Api\V1\Admin\BranchController as AdminBranchController;
+use App\Http\Controllers\Api\V1\Admin\BrandController as AdminBrandController;
 use App\Http\Controllers\Api\V1\Admin\CategoryController as AdminCategoryController;
 use App\Http\Controllers\Api\V1\Admin\CustomerController as AdminCustomerController;
 use App\Http\Controllers\Api\V1\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Api\V1\Admin\InventoryController as AdminInventoryController;
+use App\Http\Controllers\Api\V1\Admin\MediaController as AdminMediaController;
 use App\Http\Controllers\Api\V1\Admin\OrderController as AdminOrderController;
 use App\Http\Controllers\Api\V1\Admin\ProductController as AdminProductController;
 use App\Http\Controllers\Api\V1\Admin\PromotionController as AdminPromotionController;
 use App\Http\Controllers\Api\V1\Admin\RefundController as AdminRefundController;
+use App\Http\Controllers\Api\V1\Admin\RefundEvidenceController as AdminRefundEvidenceController;
 use App\Http\Controllers\Api\V1\Admin\ReviewController as AdminReviewController;
 use App\Http\Controllers\Api\V1\Admin\SkinProfileController as AdminSkinProfileController;
 use App\Http\Controllers\Api\V1\Admin\StaffController as AdminStaffController;
@@ -29,6 +31,7 @@ use App\Http\Controllers\Api\V1\Customer\FavoriteController;
 use App\Http\Controllers\Api\V1\Customer\OrderController;
 use App\Http\Controllers\Api\V1\Customer\OrderPaymentController;
 use App\Http\Controllers\Api\V1\Customer\ProfileController;
+use App\Http\Controllers\Api\V1\Customer\RefundEvidenceController as CustomerRefundEvidenceController;
 use App\Http\Controllers\Api\V1\Customer\ReviewController;
 use App\Http\Controllers\Api\V1\Customer\ServiceReviewController as CustomerServiceReviewController;
 use App\Http\Controllers\Api\V1\Customer\ShippingController;
@@ -154,6 +157,12 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
                 ->name('payment.vnpay.create');
             Route::get('{id}', [OrderController::class, 'show'])->name('show');
         });
+        Route::prefix('refunds')->name('refunds.')->middleware('role:customer')->group(function (): void {
+            Route::get('{refund}/evidence', [CustomerRefundEvidenceController::class, 'index'])
+                ->whereNumber('refund')->name('evidence.index');
+            Route::get('{refund}/evidence/{evidence}', [CustomerRefundEvidenceController::class, 'download'])
+                ->whereNumber(['refund', 'evidence'])->name('evidence.download');
+        });
     });
 
     // VNPay callbacks are public and authenticated by the gateway signature.
@@ -169,6 +178,15 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
 
     // Admin routes
     Route::prefix('admin')->name('admin.')->middleware('auth:sanctum')->group(function (): void {
+        Route::post('media/images', [AdminMediaController::class, 'storeImage'])
+            ->middleware('role:branch_manager,super_admin')
+            ->name('media.images.store');
+        Route::get('media/uploads/{uploadToken}/preview', [AdminMediaController::class, 'preview'])
+            ->middleware(['role:branch_manager,super_admin', 'signed'])
+            ->name('media.uploads.preview');
+        Route::delete('media/uploads/{uploadToken}', [AdminMediaController::class, 'destroy'])
+            ->middleware('role:branch_manager,super_admin')
+            ->name('media.uploads.destroy');
         Route::middleware('role:branch_manager,super_admin')->group(function (): void {
             Route::get('dashboard', AdminDashboardController::class)->name('dashboard');
 
@@ -235,6 +253,10 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
             ->group(function (): void {
                 Route::get('/', [AdminRefundController::class, 'index'])->name('index');
                 Route::get('counts', [AdminRefundController::class, 'counts'])->name('counts');
+                Route::get('{refund}/evidence', [AdminRefundEvidenceController::class, 'index'])
+                    ->whereNumber('refund')->name('evidence.index');
+                Route::get('{refund}/evidence/{evidence}', [AdminRefundEvidenceController::class, 'download'])
+                    ->whereNumber(['refund', 'evidence'])->name('evidence.download');
                 Route::post('{id}/approve', [AdminRefundController::class, 'approve'])->name('approve');
                 Route::post('{id}/reject', [AdminRefundController::class, 'reject'])->name('reject');
                 Route::post('{id}/wallet-payout', [AdminRefundController::class, 'walletPayout'])->name('wallet-payout');

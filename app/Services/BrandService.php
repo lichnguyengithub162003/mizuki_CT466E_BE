@@ -5,15 +5,15 @@ namespace App\Services;
 use App\Models\Brand;
 use App\Models\User;
 use App\Repositories\BrandRepository;
+use App\Support\MediaUrl;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 
 class BrandService extends BaseService
 {
     public function __construct(
         private readonly BrandRepository $brands,
+        private readonly MediaUrl $mediaUrl,
     ) {}
 
     /**
@@ -76,27 +76,10 @@ class BrandService extends BaseService
      */
     private function attachLogoUrls(Collection $brands): Collection
     {
-        $logosByKey = collect(Storage::disk('public')->files('catalog/brands'))
-            ->filter(fn (string $path): bool => in_array(
-                Str::lower(pathinfo($path, PATHINFO_EXTENSION)),
-                ['jpg', 'jpeg', 'png', 'webp', 'svg'],
-                true,
-            ))
-            ->sort()
-            ->mapWithKeys(fn (string $path): array => [
-                Str::slug(pathinfo($path, PATHINFO_FILENAME)) => $path,
-            ]);
-
-        return $brands->map(function (Brand $brand) use ($logosByKey): Brand {
-            $logoPath = collect([$brand->slug, $brand->name])
-                ->map(fn (string $value): string => Str::slug($value))
-                ->filter()
-                ->map(fn (string $key): ?string => $logosByKey->get($key))
-                ->first(fn (?string $path): bool => $path !== null);
-
+        return $brands->map(function (Brand $brand): Brand {
             $brand->setAttribute(
                 'resolved_logo_url',
-                $logoPath === null ? null : url(Storage::disk('public')->url($logoPath)),
+                $this->mediaUrl->brandLogo($brand->logo_url, $brand->slug, $brand->name),
             );
 
             return $brand;

@@ -9,11 +9,12 @@ use App\Models\Refund;
 use App\Models\User;
 use App\Repositories\OrderRepository;
 use App\Repositories\RefundRepository;
+use App\Services\Media\MediaKeyGenerator;
+use App\Services\Media\PrivateFileServiceContract;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -23,6 +24,8 @@ class RefundService extends BaseService
     public function __construct(
         private readonly RefundRepository $refunds,
         private readonly OrderRepository $orders,
+        private readonly PrivateFileServiceContract $privateFiles,
+        private readonly MediaKeyGenerator $mediaKeys,
     ) {}
 
     /**
@@ -44,22 +47,10 @@ class RefundService extends BaseService
             $this->refundError('Đơn hàng đã có yêu cầu hoàn tiền');
         }
 
-        $diskName = (string) config('filesystems.refund_evidence_disk', 'public');
-        $disk = Storage::disk($diskName);
-        $paths = [];
+        $uploadedKeys = [];
 
         try {
-            foreach ($evidence as $file) {
-                $path = $disk->putFile('refund-evidence', $file);
-
-                if ($path === false) {
-                    throw new \RuntimeException('Unable to store refund evidence');
-                }
-
-                $paths[] = $path;
-            }
-
-            return $this->refunds->transaction(function () use ($user, $orderId, $data, $paths): Refund {
+            return $this->refunds->transaction(function () use ($user, $orderId, $data, $evidence, &$uploadedKeys): Refund {
                 $lockedOrder = $this->orders->lockForUser($orderId, $user->id);
 
                 if ($lockedOrder === null) {
@@ -75,7 +66,7 @@ class RefundService extends BaseService
                 $reasonType = OrderRequestReason::from($data['reason_type']);
                 $reason = trim((string) ($data['reason'] ?? '')) ?: $reasonType->label();
 
-                return $this->refunds->createRefund([
+                $refund = $this->refunds->createRefund([
                     'refund_number' => 'RF-'.now()->format('YmdHis').'-'.Str::upper(Str::random(8)),
                     'order_id' => $lockedOrder->id,
                     'user_id' => $user->id,
@@ -83,21 +74,65 @@ class RefundService extends BaseService
                     'requested_amount' => $lockedOrder->total_amount,
                     'reason_type' => $reasonType->value,
                     'reason' => $reason,
-                    'evidence_paths' => $paths,
+                    'evidence_paths' => [],
                 ]);
-            });
-        } catch (UniqueConstraintViolationException) {
-            if ($paths !== []) {
-                $disk->delete($paths);
-            }
 
+                foreach ($evidence as $file) {
+                    [$type, $extension, $mimeType] = $this->classifyEvidence($file);
+                    $key = $type === 'image'
+                        ? $this->mediaKeys->refundImage($refund->id, $extension)
+                        : $this->mediaKeys->refundVideo($refund->id, $extension);
+
+                    // Include the attempted key so cleanup also covers ambiguous
+                    // failures where the provider wrote the object before erroring.
+                    $uploadedKeys[] = $key;
+                    $this->privateFiles->put(
+                        key: $key,
+                        contents: $file,
+                        mimeType: $mimeType,
+                        originalName: $file->getClientOriginalName(),
+                    );
+                }
+
+                $refund = $this->refunds->updateEvidencePaths($refund, $uploadedKeys);
+
+                $lockedOrder->fill(['status' => OrderStatus::RefundRequested])->save();
+
+                return $refund;
+            }, 1);
+        } catch (UniqueConstraintViolationException) {
+            $this->cleanupUploadedEvidence($uploadedKeys);
             $this->refundError('Đơn hàng đã có yêu cầu hoàn tiền');
         } catch (Throwable $exception) {
-            if ($paths !== []) {
-                $disk->delete($paths);
-            }
-
+            $this->cleanupUploadedEvidence($uploadedKeys);
             throw $exception;
+        }
+    }
+
+    /** @return array{0: 'image'|'video', 1: 'jpg'|'png'|'mp4', 2: string} */
+    private function classifyEvidence(UploadedFile $file): array
+    {
+        $mimeType = (string) $file->getMimeType();
+
+        return match ($mimeType) {
+            'image/jpeg' => ['image', 'jpg', $mimeType],
+            'image/png' => ['image', 'png', $mimeType],
+            'video/mp4' => ['video', 'mp4', $mimeType],
+            default => throw ValidationException::withMessages([
+                'evidence' => ['File bằng chứng chỉ hỗ trợ JPG, JPEG, PNG hoặc MP4'],
+            ]),
+        };
+    }
+
+    /** @param array<int, string> $keys */
+    private function cleanupUploadedEvidence(array $keys): void
+    {
+        foreach ($keys as $key) {
+            try {
+                $this->privateFiles->delete($key);
+            } catch (Throwable $cleanupException) {
+                report($cleanupException);
+            }
         }
     }
 
