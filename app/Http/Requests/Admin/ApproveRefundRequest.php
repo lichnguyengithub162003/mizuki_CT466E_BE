@@ -17,6 +17,7 @@ class ApproveRefundRequest extends FormRequest
         return [
             'approved_amount' => ['sometimes', 'integer', 'min:1'],
             'review_note' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'return_required' => ['sometimes', 'boolean'],
         ];
     }
 }

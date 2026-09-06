@@ -26,6 +26,7 @@ class RefundController extends BaseController
      *     summary="Danh sách yêu cầu hoàn tiền",
      *
      *     @OA\Parameter(name="status", in="query", @OA\Schema(type="string", enum={"requested", "approved", "rejected", "refunded"})),
+     *     @OA\Parameter(name="return_status", in="query", @OA\Schema(type="string", enum={"not_required", "awaiting_return", "in_transit", "received", "restocked", "not_restockable"})),
      *     @OA\Parameter(name="branch_id", in="query", @OA\Schema(type="integer")),
      *     @OA\Parameter(name="keyword", in="query", @OA\Schema(type="string")),
      *     @OA\Parameter(name="page", in="query", @OA\Schema(type="integer", minimum=1)),
@@ -45,6 +46,15 @@ class RefundController extends BaseController
             resource: RefundResource::collection($paginator),
             paginator: $paginator,
             message: 'Lấy danh sách yêu cầu hoàn tiền thành công!',
+        );
+    }
+
+    public function counts(Request $request): JsonResponse
+    {
+        return $this->successResponseRaw(
+            request: $request,
+            data: $this->refunds->counts($request->user()),
+            message: 'Lấy số lượng yêu cầu hoàn tiền cần xử lý thành công!',
         );
     }
 
@@ -174,6 +184,88 @@ class RefundController extends BaseController
             request: $request,
             resource: new RefundResource($refund),
             message: 'Chi trả hoàn tiền vào ví thành công!',
+        );
+    }
+
+    public function manualSettlement(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate([
+            'settlement_reference' => ['required', 'string', 'max:120'],
+        ]);
+        $refund = $this->refunds->completeManualSettlement(
+            $request->user(),
+            $id,
+            (string) $data['settlement_reference'],
+        );
+
+        if ($refund === null) {
+            return $this->refundNotFound();
+        }
+
+        return $this->successResponse(
+            request: $request,
+            resource: new RefundResource($refund),
+            message: 'Đã ghi nhận hoàn tiền ngoài hệ thống!',
+        );
+    }
+
+    public function receiveReturn(Request $request, int $id): JsonResponse
+    {
+        $refund = $this->refunds->receiveReturn($request->user(), $id);
+
+        if ($refund === null) {
+            return $this->refundNotFound();
+        }
+
+        return $this->successResponse(
+            request: $request,
+            resource: new RefundResource($refund),
+            message: 'Đã ghi nhận nhận hàng hoàn!',
+        );
+    }
+
+    public function restock(Request $request, int $id): JsonResponse
+    {
+        $refund = $this->refunds->restock($request->user(), $id);
+
+        if ($refund === null) {
+            return $this->refundNotFound();
+        }
+
+        return $this->successResponse(
+            request: $request,
+            resource: new RefundResource($refund),
+            message: 'Đã nhập hàng hoàn về kho!',
+        );
+    }
+
+    public function markNotRestockable(Request $request, int $id): JsonResponse
+    {
+        $refund = $this->refunds->markNotRestockable($request->user(), $id);
+
+        if ($refund === null) {
+            return $this->refundNotFound();
+        }
+
+        return $this->successResponse(
+            request: $request,
+            resource: new RefundResource($refund),
+            message: 'Đã ghi nhận hàng hoàn không thể nhập lại kho!',
+        );
+    }
+
+    public function rejectReturnInspection(Request $request, int $id): JsonResponse
+    {
+        $refund = $this->refunds->rejectReturnInspection($request->user(), $id);
+
+        if ($refund === null) {
+            return $this->refundNotFound();
+        }
+
+        return $this->successResponse(
+            request: $request,
+            resource: new RefundResource($refund),
+            message: 'Đã ghi nhận hàng hoàn không đạt điều kiện hoàn tiền!',
         );
     }
 

@@ -234,9 +234,15 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
             ->middleware('role:branch_manager,super_admin')
             ->group(function (): void {
                 Route::get('/', [AdminRefundController::class, 'index'])->name('index');
+                Route::get('counts', [AdminRefundController::class, 'counts'])->name('counts');
                 Route::post('{id}/approve', [AdminRefundController::class, 'approve'])->name('approve');
                 Route::post('{id}/reject', [AdminRefundController::class, 'reject'])->name('reject');
                 Route::post('{id}/wallet-payout', [AdminRefundController::class, 'walletPayout'])->name('wallet-payout');
+                Route::post('{id}/manual-settlement', [AdminRefundController::class, 'manualSettlement'])->name('manual-settlement');
+                Route::post('{id}/return/receive', [AdminRefundController::class, 'receiveReturn'])->name('return.receive');
+                Route::post('{id}/return/restock', [AdminRefundController::class, 'restock'])->name('return.restock');
+                Route::post('{id}/return/not-restockable', [AdminRefundController::class, 'markNotRestockable'])->name('return.not-restockable');
+                Route::post('{id}/return/reject-inspection', [AdminRefundController::class, 'rejectReturnInspection'])->name('return.reject-inspection');
                 Route::get('{id}', [AdminRefundController::class, 'show'])->name('show');
             });
 

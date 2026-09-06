@@ -2,7 +2,9 @@
 
 namespace App\Services\Admin;
 
+use App\Enums\PaymentMethod;
 use App\Enums\PaymentStatus;
+use App\Enums\RefundReturnStatus;
 use App\Enums\WalletTransactionDirection;
 use App\Enums\WalletTransactionType;
 use App\Models\Refund;
@@ -53,6 +55,14 @@ class RefundService extends BaseService
         return $refund;
     }
 
+    /** @return array{pending_action: int, requested: int, approved_pending_payout: int} */
+    public function counts(User $user): array
+    {
+        Gate::forUser($user)->authorize('viewAny', Refund::class);
+
+        return $this->refunds->countsForAdmin($user->role, $user->branch_id);
+    }
+
     /** @param array{approved_amount?: int, review_note?: string|null} $data */
     public function approve(User $user, int $refundId, array $data): ?Refund
     {
@@ -79,6 +89,7 @@ class RefundService extends BaseService
                 approvedAmount: $approvedAmount,
                 reviewerId: $user->id,
                 reviewNote: $data['review_note'] ?? null,
+                returnRequired: (bool) ($data['return_required'] ?? false),
             );
 
             if ($approved->order->payment?->status !== PaymentStatus::Paid) {
@@ -157,11 +168,181 @@ class RefundService extends BaseService
         });
     }
 
+    public function completeManualSettlement(User $user, int $refundId, string $reference): ?Refund
+    {
+        return $this->refunds->transaction(function () use ($user, $refundId, $reference): ?Refund {
+            $refund = $this->refunds->lockForAdmin($refundId, $user->role, $user->branch_id);
+
+            if ($refund === null) {
+                return null;
+            }
+
+            Gate::forUser($user)->authorize('payout', $refund);
+
+            if ($refund->status === 'refunded'
+                && in_array($refund->settlement_method, ['vnpay', 'manual_external'], true)) {
+                return $refund;
+            }
+
+            if ($refund->status !== 'approved') {
+                throw ValidationException::withMessages(['status' => ['Chỉ yêu cầu đã duyệt mới có thể xác nhận hoàn ngoài hệ thống']]);
+            }
+
+            $this->ensureInspectionAllowsSettlement($refund);
+
+            if ($refund->order->payment?->status !== PaymentStatus::Paid
+                || $refund->order->payment?->method !== PaymentMethod::VNPay) {
+                throw ValidationException::withMessages(['payment' => ['Chỉ giao dịch VNPAY sử dụng luồng xác nhận hoàn về giao dịch gốc']]);
+            }
+
+            return $this->refunds->closeWithoutPayout(
+                $refund,
+                'vnpay',
+                trim($reference),
+            );
+        });
+    }
+
+    public function receiveReturn(User $user, int $refundId): ?Refund
+    {
+        return $this->refunds->transaction(function () use ($user, $refundId): ?Refund {
+            $refund = $this->refunds->lockForAdmin($refundId, $user->role, $user->branch_id);
+
+            if ($refund === null) {
+                return null;
+            }
+
+            Gate::forUser($user)->authorize('manageReturn', $refund);
+            $this->ensureReturnRequired($refund);
+
+            if (in_array($refund->return_status, [
+                RefundReturnStatus::Received,
+                RefundReturnStatus::Restocked,
+            ], true)) {
+                return $refund;
+            }
+
+            if (! in_array($refund->status, ['approved', 'refunded'], true)
+                || ! in_array($refund->return_status, [
+                    RefundReturnStatus::AwaitingReturn,
+                    RefundReturnStatus::InTransit,
+                ], true)) {
+                throw ValidationException::withMessages([
+                    'return_status' => ['Trạng thái hiện tại không thể ghi nhận đã nhận hàng hoàn'],
+                ]);
+            }
+
+            return $this->refunds->markReturnReceived($refund);
+        });
+    }
+
+    public function restock(User $user, int $refundId): ?Refund
+    {
+        return $this->refunds->transaction(function () use ($user, $refundId): ?Refund {
+            $refund = $this->refunds->lockForAdmin($refundId, $user->role, $user->branch_id);
+
+            if ($refund === null) {
+                return null;
+            }
+
+            Gate::forUser($user)->authorize('manageReturn', $refund);
+            $this->ensureReturnRequired($refund);
+
+            if ($refund->return_status === RefundReturnStatus::Restocked) {
+                return $refund;
+            }
+
+            if ($refund->return_status !== RefundReturnStatus::Received) {
+                throw ValidationException::withMessages([
+                    'return_status' => ['Chỉ có thể nhập kho sau khi đã nhận hàng hoàn'],
+                ]);
+            }
+
+            if ($refund->order->items->isEmpty()
+                || $refund->order->items->contains(fn ($item): bool => $item->product_variant_id === null)) {
+                throw ValidationException::withMessages([
+                    'items' => ['Không thể xác định đầy đủ biến thể của đơn hàng để nhập kho'],
+                ]);
+            }
+
+            try {
+                return $this->refunds->restockFullOrder($refund, $user->id);
+            } catch (\DomainException $exception) {
+                throw ValidationException::withMessages([
+                    'inventory' => [$exception->getMessage()],
+                ]);
+            }
+        });
+    }
+
+    public function markNotRestockable(User $user, int $refundId): ?Refund
+    {
+        return $this->refunds->transaction(function () use ($user, $refundId): ?Refund {
+            $refund = $this->refunds->lockForAdmin($refundId, $user->role, $user->branch_id);
+
+            if ($refund === null) {
+                return null;
+            }
+
+            Gate::forUser($user)->authorize('manageReturn', $refund);
+            $this->ensureReturnRequired($refund);
+
+            if ($refund->return_status === RefundReturnStatus::NotRestockable) {
+                return $refund;
+            }
+
+            if ($refund->return_status !== RefundReturnStatus::Received) {
+                throw ValidationException::withMessages([
+                    'return_status' => ['Chỉ có thể đánh dấu không nhập kho sau khi đã nhận hàng hoàn'],
+                ]);
+            }
+
+            return $this->refunds->markReturnNotRestockable($refund);
+        });
+    }
+
+    public function rejectReturnInspection(User $user, int $refundId): ?Refund
+    {
+        return $this->refunds->transaction(function () use ($user, $refundId): ?Refund {
+            $refund = $this->refunds->lockForAdmin($refundId, $user->role, $user->branch_id);
+
+            if ($refund === null) {
+                return null;
+            }
+
+            Gate::forUser($user)->authorize('manageReturn', $refund);
+            $this->ensureReturnRequired($refund);
+
+            if ($refund->return_inspection_status === 'rejected') {
+                return $refund;
+            }
+
+            if ($refund->status !== 'approved'
+                || $refund->return_status !== RefundReturnStatus::Received
+                || $refund->return_inspection_status !== 'pending') {
+                throw ValidationException::withMessages([
+                    'return_inspection_status' => ['Chỉ có thể từ chối sau khi đã nhận hàng và đang chờ kiểm tra'],
+                ]);
+            }
+
+            return $this->refunds->rejectReturnInspection($refund, $user->id);
+        });
+    }
+
     private function ensureRequested(Refund $refund): void
     {
         if ($refund->status !== 'requested') {
             throw ValidationException::withMessages([
                 'status' => ['Yêu cầu hoàn tiền đã được xử lý'],
+            ]);
+        }
+    }
+
+    private function ensureReturnRequired(Refund $refund): void
+    {
+        if (! $refund->return_required) {
+            throw ValidationException::withMessages([
+                'return_required' => ['Yêu cầu hoàn tiền này không yêu cầu hoàn hàng'],
             ]);
         }
     }
@@ -180,9 +361,44 @@ class RefundService extends BaseService
             ]);
         }
 
+        $this->ensureInspectionAllowsSettlement($refund);
+
         if ($refund->order->payment?->status !== PaymentStatus::Paid) {
             throw ValidationException::withMessages([
                 'payment' => ['Đơn hàng chưa thanh toán nên không thể chi trả hoàn tiền vào ví'],
+            ]);
+        }
+
+        if (! in_array($refund->order->payment?->method, [
+            PaymentMethod::Wallet,
+            PaymentMethod::Cash,
+            PaymentMethod::BankTransfer,
+        ], true)) {
+            throw ValidationException::withMessages([
+                'payment' => ['Phương thức thanh toán này không hoàn tiền vào Ví Mizuki'],
+            ]);
+        }
+    }
+
+    private function ensureInspectionAllowsSettlement(Refund $refund): void
+    {
+        if (! $refund->return_required) {
+            return;
+        }
+
+        $accepted = in_array($refund->return_inspection_status, [
+            'accepted_restockable',
+            'accepted_not_restockable',
+        ], true);
+        $legacyAccepted = $refund->return_inspection_status === null
+            && in_array($refund->return_status, [
+                RefundReturnStatus::Restocked,
+                RefundReturnStatus::NotRestockable,
+            ], true);
+
+        if (! $accepted && ! $legacyAccepted) {
+            throw ValidationException::withMessages([
+                'return_inspection_status' => ['Phải hoàn tất kiểm tra hàng hoàn trước khi hoàn tiền'],
             ]);
         }
     }

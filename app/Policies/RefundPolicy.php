@@ -33,6 +33,11 @@ class RefundPolicy
         return $this->belongsToManagedBranch($user, $refund);
     }
 
+    public function manageReturn(User $user, Refund $refund): bool
+    {
+        return $this->belongsToManagedBranch($user, $refund);
+    }
+
     private function belongsToManagedBranch(User $user, Refund $refund): bool
     {
         return $user->role === UserRole::BranchManager
