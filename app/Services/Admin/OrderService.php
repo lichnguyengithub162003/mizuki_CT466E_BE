@@ -34,6 +34,27 @@ class OrderService extends BaseService
         'returning',
     ];
 
+    /** @var list<string> */
+    private const PRINTABLE_SHIPMENT_STATUSES = [
+        'pending',
+        'ready_to_pick',
+        'picking',
+        'in_transit',
+        'out_for_delivery',
+        'delivery_failed',
+        'returning',
+    ];
+
+    /** @var array<string, string> */
+    private const MANUAL_TRANSITION_STATUSES = [
+        'picked' => 'picked',
+        'delivering' => 'delivering',
+        'delivered' => 'delivered',
+        'delivery-fail' => 'delivery_fail',
+        'waiting-to-return' => 'waiting_to_return',
+        'returned' => 'returned',
+    ];
+
     public function __construct(
         private readonly OrderRepository $orders,
         private readonly ShipmentRepository $shipments,
@@ -173,7 +194,7 @@ class OrderService extends BaseService
                 ]);
             }
 
-            $this->settlePickupPayment($order, $user);
+            $this->settleCashPayment($order, $user);
             $this->orders->consumeReservedInventory($order);
             $previousStatus = $order->status;
 
@@ -297,6 +318,12 @@ class OrderService extends BaseService
 
         Gate::forUser($user)->authorize('view', $shipment->order);
 
+        if (! in_array($shipment->status, self::PRINTABLE_SHIPMENT_STATUSES, true)) {
+            throw ValidationException::withMessages([
+                'status' => ['Không thể in nhãn cho vận đơn ở trạng thái hiện tại'],
+            ]);
+        }
+
         try {
             $label = $this->ghn->generatePrintToken([$shipment->ghn_order_code]);
         } catch (GhnApiException) {
@@ -306,6 +333,67 @@ class OrderService extends BaseService
         }
 
         return ['shipment' => $shipment, ...$label];
+    }
+
+    public function manualShipmentTransition(
+        User $user,
+        int $orderId,
+        string $transition,
+    ): ?Shipment {
+        if (! config('shipping.manual_transitions_enabled')) {
+            abort(403, 'Cập nhật vận chuyển thủ công chỉ khả dụng trong môi trường local/demo');
+        }
+
+        $status = self::MANUAL_TRANSITION_STATUSES[$transition] ?? null;
+
+        if ($status === null) {
+            throw ValidationException::withMessages([
+                'status' => ['Trạng thái vận chuyển thủ công không hợp lệ'],
+            ]);
+        }
+
+        $shipment = $this->shipments->simulateGhnEventForAdmin(
+            orderId: $orderId,
+            role: $user->role,
+            branchId: $user->branch_id,
+            providerStatus: $status,
+        );
+
+        if ($shipment !== null) {
+            Gate::forUser($user)->authorize('view', $shipment->order);
+        }
+
+        return $shipment;
+    }
+
+    public function confirmCodPayment(User $user, int $orderId): ?Order
+    {
+        return $this->orders->transaction(function () use ($user, $orderId): ?Order {
+            $order = $this->orders->lockForAdmin($orderId, $user->role, $user->branch_id);
+
+            if ($order === null) {
+                return null;
+            }
+
+            Gate::forUser($user)->authorize('view', $order);
+
+            if ($order->fulfillment_method !== 'shipping'
+                || $order->payment_method !== PaymentMethod::Cash) {
+                throw ValidationException::withMessages([
+                    'payment' => ['Chỉ đơn giao hàng COD mới có thể xác nhận đã thu tiền'],
+                ]);
+            }
+
+            if ($order->status !== OrderStatus::Delivered) {
+                throw ValidationException::withMessages([
+                    'status' => ['Chỉ đơn đã giao hàng mới có thể xác nhận đã thu tiền COD'],
+                ]);
+            }
+
+            $this->settleCashPayment($order, $user);
+
+            return $this->orders->findForAdmin($order->id, $user->role, $user->branch_id);
+        });
     }
 
     private function validateShipmentOrder(Order $order): void
@@ -367,7 +455,7 @@ class OrderService extends BaseService
         }
     }
 
-    private function settlePickupPayment(Order $order, User $operator): void
+    private function settleCashPayment(Order $order, User $operator): void
     {
         $this->assertPaymentReady($order);
 

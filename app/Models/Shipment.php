@@ -20,6 +20,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 ])]
 class Shipment extends Model
 {
+    /** @var array<string, list<string>> */
+    private const MANUAL_TRANSITIONS = [
+        'pending' => ['in_transit'],
+        'ready_to_pick' => ['in_transit'],
+        'picking' => ['in_transit'],
+        'in_transit' => ['out_for_delivery'],
+        'out_for_delivery' => ['delivered', 'delivery_failed'],
+    ];
+
     /** @var array<string, string> */
     private const GHN_STATUS_MAP = [
         'ready_to_pick' => 'ready_to_pick',
@@ -38,6 +47,7 @@ class Shipment extends Model
         'return_transporting' => 'returning',
         'return_sorting' => 'returning',
         'returning' => 'returning',
+        'return_fail' => 'failed',
         'returned' => 'returned',
         'cancel' => 'cancelled',
         'exception' => 'failed',
@@ -111,6 +121,59 @@ class Shipment extends Model
         return self::STATUS_LABELS[$this->status] ?? $this->status;
     }
 
+    public function providerStatus(): ?string
+    {
+        $status = data_get($this->provider_response, 'Status')
+            ?? data_get($this->provider_response, 'status');
+
+        return is_string($status) && filled($status) ? $status : null;
+    }
+
+    public function logisticsStage(): string
+    {
+        return match ($this->providerStatus()) {
+            'ready_to_pick', 'picking', 'money_collect_picking' => 'waiting_pickup',
+            'picked' => 'picked_up',
+            'storing', 'transporting', 'sorting' => 'in_transit',
+            'delivering', 'money_collect_delivering' => 'out_for_delivery',
+            'delivery_fail' => 'delivery_failed',
+            'waiting_to_return' => 'waiting_return',
+            'return', 'return_transporting', 'return_sorting', 'returning' => 'returning',
+            'returned' => 'returned',
+            'delivered' => 'delivered',
+            'exception', 'damage', 'lost', 'return_fail' => 'exception',
+            'cancel' => 'cancelled',
+            default => match ($this->status) {
+                'pending', 'ready_to_pick', 'picking' => 'waiting_pickup',
+                'in_transit' => 'in_transit',
+                'out_for_delivery' => 'out_for_delivery',
+                'delivery_failed' => 'delivery_failed',
+                'returning' => 'returning',
+                'returned' => 'returned',
+                'delivered' => 'delivered',
+                'cancelled' => 'cancelled',
+                default => 'exception',
+            },
+        };
+    }
+
+    public function logisticsStageLabel(): string
+    {
+        return match ($this->logisticsStage()) {
+            'waiting_pickup' => 'Chờ lấy hàng',
+            'picked_up' => 'Đã lấy hàng',
+            'in_transit' => 'Đang trung chuyển',
+            'out_for_delivery' => 'Đang giao hàng',
+            'delivery_failed' => 'Giao thất bại',
+            'waiting_return' => 'Chờ trả hàng',
+            'returning' => 'Đang trả hàng',
+            'returned' => 'Đã trả hàng',
+            'delivered' => 'Đã giao hàng',
+            'cancelled' => 'Đã hủy vận đơn',
+            default => 'Ngoại lệ',
+        };
+    }
+
     public function canTransitionTo(string $status): bool
     {
         if ($status === $this->status) {
@@ -123,6 +186,38 @@ class Shipment extends Model
 
         return isset(self::STATUS_RANK[$status])
             && (self::STATUS_RANK[$status] >= (self::STATUS_RANK[$this->status] ?? -1));
+    }
+
+    /** @return list<string> */
+    public function manualTransitionTargets(): array
+    {
+        return self::MANUAL_TRANSITIONS[$this->status] ?? [];
+    }
+
+    public function canManualTransitionTo(string $status): bool
+    {
+        return $status === $this->status
+            || in_array($status, $this->manualTransitionTargets(), true);
+    }
+
+    public function applyManualTransition(string $status): bool
+    {
+        if (! $this->canManualTransitionTo($status)) {
+            return false;
+        }
+
+        $attributes = ['status' => $status];
+
+        if (in_array($status, ['in_transit', 'out_for_delivery'], true)) {
+            $attributes['shipped_at'] = $this->shipped_at ?? now();
+        } elseif ($status === 'delivered') {
+            $attributes['shipped_at'] = $this->shipped_at ?? now();
+            $attributes['delivered_at'] = $this->delivered_at ?? now();
+        }
+
+        $this->fill($attributes);
+
+        return true;
     }
 
     /** @param array<string, mixed> $payload */

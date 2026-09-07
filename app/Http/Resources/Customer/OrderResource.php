@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Customer;
 
 use App\Enums\OrderStatus;
+use App\Http\Resources\Concerns\SerializesMedia;
 use App\Models\OrderItem;
 use App\Models\ProductImage;
 use App\Models\Review;
@@ -14,6 +15,8 @@ use Illuminate\Support\Collection;
 
 class OrderResource extends JsonResource
 {
+    use SerializesMedia;
+
     /** @return array<string, mixed> */
     public function toArray(Request $request): array
     {
@@ -74,6 +77,9 @@ class OrderResource extends JsonResource
                 'tracking_code' => $this->shipment->ghn_order_code,
                 'status' => $this->shipment->status,
                 'status_label' => $this->shipment->statusLabel(),
+                'raw_status' => $this->shipment->providerStatus(),
+                'logistics_stage' => $this->shipment->logisticsStage(),
+                'logistics_stage_label' => $this->shipment->logisticsStageLabel(),
                 'shipping_fee' => $this->shipment->shipping_fee,
                 'expected_delivery_at' => $this->shipment->expected_delivery_at?->toISOString(),
                 'current_location' => $this->shipmentCurrentLocation(),
@@ -185,7 +191,9 @@ class OrderResource extends JsonResource
             fn (ProductImage $image): bool => $image->image_url === ProductImageImportService::FALLBACK_URL,
         );
 
-        return ($realImages->firstWhere('is_primary', true) ?? $realImages->first())?->image_url;
+        return $this->mediaUrl(
+            ($realImages->firstWhere('is_primary', true) ?? $realImages->first())?->image_url,
+        );
     }
 
     private function shipmentCurrentLocation(): ?string

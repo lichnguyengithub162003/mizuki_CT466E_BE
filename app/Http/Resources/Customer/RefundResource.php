@@ -5,15 +5,12 @@ namespace App\Http\Resources\Customer;
 use App\Enums\OrderRequestReason;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Storage;
 
 class RefundResource extends JsonResource
 {
     /** @return array<string, mixed> */
     public function toArray(Request $request): array
     {
-        $disk = Storage::disk((string) config('filesystems.refund_evidence_disk', 'public'));
-
         return [
             'id' => $this->id,
             'refund_number' => $this->refund_number,
@@ -35,19 +32,19 @@ class RefundResource extends JsonResource
             'reason_type' => $this->reason_type,
             'reason_type_label' => OrderRequestReason::tryFrom($this->reason_type)?->label(),
             'reason' => $this->reason,
-            'evidence_paths' => $this->evidence_paths,
-            'evidence_urls' => collect($this->evidence_paths)
-                ->map(fn(string $path): string => $disk->url($path))
-                ->all(),
+            'evidence_count' => count($this->evidence_paths ?? []),
+            'has_evidence' => count($this->evidence_paths ?? []) > 0,
             'review_note' => $this->review_note,
             'payment_destination' => $this->paymentDestination(),
-            'payment_destination_label' => $this->paymentDestination() === 'wallet'
-                ? 'Ví Mizuki'
-                : null,
+            'payment_destination_label' => match ($this->paymentDestination()) {
+                'wallet' => 'Ví Mizuki',
+                'card' => 'Hoàn ngoài hệ thống',
+                default => null,
+            },
             'product_value' => $this->order?->subtotal,
             'voucher_discount_amount' => $this->order?->discount_amount,
             'received_amount' => $this->status === 'refunded'
-                && $this->wallet_transaction_id !== null
+                && in_array($this->settlement_method, ['wallet', 'manual_external'], true)
                 ? ($this->approved_amount ?? $this->requested_amount)
                 : null,
             'created_at' => $this->created_at?->toISOString(),
@@ -56,7 +53,11 @@ class RefundResource extends JsonResource
 
     private function paymentDestination(): ?string
     {
-        return $this->wallet_transaction_id === null ? null : 'wallet';
+        return match ($this->settlement_method) {
+            'wallet' => 'wallet',
+            'manual_external' => 'card',
+            default => null,
+        };
     }
 
     private function statusLabel(string $status): string

@@ -278,6 +278,45 @@ class OrderController extends BaseController
         );
     }
 
+    public function manualShipmentTransition(
+        Request $request,
+        int $id,
+        string $transition,
+    ): JsonResponse {
+        $shipment = $this->orders->manualShipmentTransition(
+            $request->user(),
+            $id,
+            $transition,
+        );
+
+        if ($shipment === null) {
+            return $this->orderNotFound();
+        }
+
+        $order = $this->orders->detail($request->user(), $id);
+
+        return $this->successResponse(
+            request: $request,
+            resource: new OrderResource($order),
+            message: 'Mô phỏng trạng thái GHN thành công!',
+        );
+    }
+
+    public function confirmCodPayment(Request $request, int $id): JsonResponse
+    {
+        $order = $this->orders->confirmCodPayment($request->user(), $id);
+
+        if ($order === null) {
+            return $this->orderNotFound();
+        }
+
+        return $this->successResponse(
+            request: $request,
+            resource: new OrderResource($order),
+            message: 'Xác nhận đã thu tiền COD thành công!',
+        );
+    }
+
     private function orderNotFound(): JsonResponse
     {
         return $this->errorResponse(

@@ -114,7 +114,7 @@ test('customer cannot cancel another customers order', function (): void {
 });
 
 test('customer can request a refund with multiple valid evidence files', function (): void {
-    Storage::fake('public');
+    Storage::fake('local');
     $context = createOrderCancelRefundContext(OrderStatus::Delivered);
     $this->actingAs($context['user']);
 
@@ -124,8 +124,14 @@ test('customer can request a refund with multiple valid evidence files', functio
             'reason_type' => 'product_damaged',
             'reason' => 'Hộp bị vỡ khi nhận hàng',
             'evidence' => [
-                UploadedFile::fake()->create('front.jpg', 100, 'image/jpeg'),
-                UploadedFile::fake()->create('detail.png', 100, 'image/png'),
+                UploadedFile::fake()->createWithContent(
+                    'front.jpg',
+                    base64_decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAF//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABBQJ//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAwEBPwF//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAgEBPwF//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQAGPwJ//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPyF//9oADAMBAAIAAwAAABD/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/EH//xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/EH//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/EH//2Q==', true),
+                ),
+                UploadedFile::fake()->createWithContent(
+                    'detail.png',
+                    base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true),
+                ),
             ],
         ],
         ['Accept' => 'application/json'],
@@ -134,17 +140,21 @@ test('customer can request a refund with multiple valid evidence files', functio
         ->assertJsonPath('data.status', 'requested')
         ->assertJsonPath('data.status_label', 'Chờ duyệt')
         ->assertJsonPath('data.reason_type', 'product_damaged')
-        ->assertJsonCount(2, 'data.evidence_paths');
+        ->assertJsonPath('data.evidence_count', 2)
+        ->assertJsonPath('data.has_evidence', true);
 
-    $paths = $response->json('data.evidence_paths');
-    Storage::disk('public')->assertExists($paths);
+    $paths = Refund::query()->sole()->evidence_paths;
+    Storage::disk('local')->assertExists($paths);
+    expect($paths[0])->toMatch('~^private/refunds/\\d+/evidence/images/[0-9a-f-]{36}\\.jpg$~')
+        ->and($paths[1])->toMatch('~^private/refunds/\\d+/evidence/images/[0-9a-f-]{36}\\.png$~')
+        ->and($response->json('data'))->not->toHaveKeys(['evidence_paths', 'evidence_urls']);
     $this->assertDatabaseHas('refunds', [
         'order_id' => $context['order']->id,
         'user_id' => $context['user']->id,
         'status' => 'requested',
         'requested_amount' => 300_000,
     ]);
-    expect($context['order']->refresh()->status)->toBe(OrderStatus::Delivered);
+    expect($context['order']->refresh()->status)->toBe(OrderStatus::RefundRequested);
 
     $this->getJson("/api/v1/customer/orders/{$context['order']->id}")
         ->assertOk()
@@ -183,6 +193,7 @@ test('customer refund status labels remain readable after review and payout', fu
 
 test('customer cannot request a second refund for the same order', function (): void {
     Storage::fake('public');
+    Storage::fake('local');
     $context = createOrderCancelRefundContext(OrderStatus::Delivered);
     Refund::query()->create([
         'refund_number' => 'RF-'.Str::upper(Str::random(12)),
@@ -207,7 +218,8 @@ test('customer cannot request a second refund for the same order', function (): 
         ->assertJsonPath('data.errors.refund.0', 'Đơn hàng đã có yêu cầu hoàn tiền');
 
     $this->assertDatabaseCount('refunds', 1);
-    expect(Storage::disk('public')->allFiles())->toBe([]);
+    expect(Storage::disk('public')->allFiles())->toBe([])
+        ->and(Storage::disk('local')->allFiles())->toBe([]);
 });
 
 test('refund request requires at least one evidence file', function (): void {

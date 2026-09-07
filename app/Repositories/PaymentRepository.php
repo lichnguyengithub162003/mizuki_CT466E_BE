@@ -162,6 +162,21 @@ class PaymentRepository extends BaseRepository
         ]);
     }
 
+    public function markCodCollectedOnDelivery(Payment $payment): Payment
+    {
+        return $this->update($payment, [
+            'status' => PaymentStatus::Paid,
+            'provider_response' => [
+                ...($payment->provider_response ?? []),
+                'collection_source' => 'shipment_delivered',
+            ],
+            'paid_at' => now(),
+            'failed_at' => null,
+            'cancelled_at' => null,
+            'refunded_at' => null,
+        ]);
+    }
+
     /** @param array<string, mixed> $attributes */
     public function createPayment(array $attributes): Payment
     {

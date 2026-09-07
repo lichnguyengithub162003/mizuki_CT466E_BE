@@ -23,9 +23,15 @@ use App\Models\User;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 uses(RefreshDatabase::class);
+
+beforeEach(function (): void {
+    Storage::fake('public');
+    Storage::disk('public')->put('catalog/products/m4/1.webp', 'image');
+});
 
 /**
  * @return array{
@@ -399,6 +405,7 @@ test('refund lifecycle timestamps and authoritative monetary fields are consiste
             'order_id' => $order->id,
             'user_id' => $context['user']->id,
             'wallet_transaction_id' => $walletTransaction?->id,
+            'settlement_method' => $status === 'refunded' ? 'wallet' : null,
             'status' => $status,
             'requested_amount' => 250_000,
             'approved_amount' => in_array($status, ['approved', 'refunded'], true) ? 240_000 : null,
@@ -444,3 +451,4 @@ test('customer cannot read another customers enriched order contract', function 
 
     $this->getJson("/api/v1/customer/orders/{$order->id}")->assertNotFound();
 });
+

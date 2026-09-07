@@ -20,12 +20,20 @@ use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use App\Repositories\WalletTransactionRepository;
 use App\Services\PaymentService;
+use App\Services\Shipping\GhnClient;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 uses(RefreshDatabase::class);
+
+beforeEach(function (): void {
+    Storage::fake('public');
+    Storage::disk('public')->put('qa/admin-order-item.webp', 'image');
+    Storage::disk('public')->put('refund-evidence/proof.jpg', 'image');
+});
 
 function createOrderAdminBranch(string $prefix = 'OA'): Branch
 {
@@ -79,6 +87,51 @@ function createAdminManagedRefund(Order $order, User $customer, string $status =
     ]);
 }
 
+test('admin shipping queue is filtered by shipment presence and canonical status', function (): void {
+    $branch = createOrderAdminBranch('SQ');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    $withoutShipment = createAdminManagedOrder($branch, $customer, OrderStatus::Processing, 'MZ-NO-SHIPMENT');
+    $withShipment = createAdminManagedOrder($branch, $customer, OrderStatus::Processing, 'MZ-WITH-SHIPMENT');
+    $withoutShipment->update(['fulfillment_method' => 'shipping']);
+    $withShipment->update(['fulfillment_method' => 'shipping']);
+    Shipment::query()->create([
+        'order_id' => $withShipment->id,
+        'provider' => 'ghn',
+        'ghn_order_code' => 'GHN-QUEUE-001',
+        'status' => 'in_transit',
+        'shipping_fee' => 30_000,
+    ]);
+
+    $admin = User::factory()->create(['role' => UserRole::SuperAdmin]);
+    $response = $this->actingAs($admin)
+        ->getJson('/api/v1/admin/orders?shipping_only=1&shipment_status=in_transit')
+        ->assertOk()
+        ->assertJsonPath('meta.pagination.total', 1)
+        ->assertJsonPath('data.0.id', $withShipment->id)
+        ->assertJsonPath('data.0.shipment.status_label', 'Đang vận chuyển');
+
+    expect(collect($response->json('data'))->pluck('id'))->not->toContain($withoutShipment->id);
+});
+
+test('admin order list sorts server side and composes with shipping filters', function (): void {
+    $branch = createOrderAdminBranch('SO');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    $oldest = createAdminManagedOrder($branch, $customer, OrderStatus::Processing, 'MZ-SORT-OLD');
+    $newest = createAdminManagedOrder($branch, $customer, OrderStatus::Processing, 'MZ-SORT-NEW');
+    $oldest->update(['fulfillment_method' => 'shipping', 'created_at' => now()->subDay()]);
+    $newest->update(['fulfillment_method' => 'shipping']);
+    $admin = User::factory()->create(['role' => UserRole::SuperAdmin]);
+
+    $this->actingAs($admin)
+        ->getJson('/api/v1/admin/orders?shipping_only=1&sort=oldest&per_page=1')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $oldest->id)
+        ->assertJsonPath('meta.pagination.total', 2);
+    $this->getJson('/api/v1/admin/orders?shipping_only=1&sort=newest&per_page=1')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $newest->id);
+});
+
 test('guest and customer cannot access admin order and refund endpoints', function (): void {
     $paths = [
         ['GET', '/api/v1/admin/orders'],
@@ -88,10 +141,17 @@ test('guest and customer cannot access admin order and refund endpoints', functi
         ['POST', '/api/v1/admin/orders/1/process'],
         ['POST', '/api/v1/admin/orders/1/complete'],
         ['GET', '/api/v1/admin/refunds'],
+        ['GET', '/api/v1/admin/refunds/counts'],
         ['GET', '/api/v1/admin/refunds/1'],
+        ['GET', '/api/v1/admin/refunds/1/evidence'],
         ['POST', '/api/v1/admin/refunds/1/approve'],
         ['POST', '/api/v1/admin/refunds/1/reject'],
         ['POST', '/api/v1/admin/refunds/1/wallet-payout'],
+        ['POST', '/api/v1/admin/refunds/1/manual-settlement'],
+        ['POST', '/api/v1/admin/refunds/1/return/receive'],
+        ['POST', '/api/v1/admin/refunds/1/return/restock'],
+        ['POST', '/api/v1/admin/refunds/1/return/not-restockable'],
+        ['POST', '/api/v1/admin/refunds/1/return/reject-inspection'],
     ];
 
     foreach ($paths as [$method, $path]) {
@@ -110,6 +170,7 @@ test('super admin pays an approved refund into a lazily created wallet idempoten
     $customer = User::factory()->create(['role' => UserRole::Customer]);
     $admin = User::factory()->create(['role' => UserRole::SuperAdmin]);
     $order = createAdminManagedOrder($branch, $customer, OrderStatus::Delivered);
+    $order->update(['payment_method' => PaymentMethod::Wallet]);
     app(PaymentService::class)->createForOrder($order, PaymentStatus::Paid);
     $originalOrderStatus = $order->status;
     $refund = createAdminManagedRefund($order, $customer, 'approved');
@@ -173,6 +234,7 @@ test('branch manager can payout only refunds from their own branch', function ()
         $customer,
         'approved',
     );
+    $ownOrder->update(['payment_method' => PaymentMethod::Wallet]);
     app(PaymentService::class)->createForOrder($ownOrder, PaymentStatus::Paid);
     $ownRefund->update(['approved_amount' => 100_000]);
     $otherRefund = createAdminManagedRefund(
@@ -192,6 +254,42 @@ test('branch manager can payout only refunds from their own branch', function ()
 
     expect($otherRefund->refresh()->status)->toBe('approved')
         ->and($otherRefund->wallet_transaction_id)->toBeNull();
+});
+
+test('paid VNPAY refund keeps its authoritative original transaction destination', function (): void {
+    $branch = createOrderAdminBranch('MS');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    $admin = User::factory()->create(['role' => UserRole::SuperAdmin]);
+    $order = createAdminManagedOrder($branch, $customer, OrderStatus::Delivered);
+    $order->update(['payment_method' => PaymentMethod::VNPay]);
+    app(PaymentService::class)->createForOrder($order, PaymentStatus::Paid);
+    $refund = createAdminManagedRefund($order, $customer, 'approved');
+    $refund->update(['approved_amount' => 300_000, 'reviewed_at' => now()]);
+    $this->actingAs($admin);
+
+    $this->getJson("/api/v1/admin/refunds/{$refund->id}")
+        ->assertOk()
+        ->assertJsonPath('data.next_action', 'manual_settlement')
+        ->assertJsonPath('data.allowed_actions.0', 'manual_settlement');
+    $this->postJson("/api/v1/admin/refunds/{$refund->id}/wallet-payout")
+        ->assertUnprocessable()
+        ->assertJsonPath('data.errors.payment.0', 'Phương thức thanh toán này không hoàn tiền vào Ví Mizuki');
+    $this->postJson("/api/v1/admin/refunds/{$refund->id}/manual-settlement", [])
+        ->assertUnprocessable();
+    $this->postJson("/api/v1/admin/refunds/{$refund->id}/manual-settlement", [
+        'settlement_reference' => 'VNPAY-REFUND-QA-001',
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.status', 'refunded')
+        ->assertJsonPath('data.destination', 'vnpay')
+        ->assertJsonPath('data.settlement.destination', 'vnpay_original')
+        ->assertJsonPath('data.settlement_reference', 'VNPAY-REFUND-QA-001')
+        ->assertJsonPath('data.wallet_transaction', null);
+
+    expect($refund->refresh()->settlement_method)->toBe('vnpay')
+        ->and($refund->settlement_reference)->toBe('VNPAY-REFUND-QA-001')
+        ->and($refund->wallet_transaction_id)->toBeNull();
+    $this->assertDatabaseMissing('wallet_transactions', ['order_id' => $order->id]);
 });
 
 test('requested and rejected refunds cannot be paid into a wallet', function (string $status): void {
@@ -238,6 +336,7 @@ test('wallet payout rolls back the balance when ledger creation fails', function
     $customer = User::factory()->create(['role' => UserRole::Customer]);
     $wallet = Wallet::query()->create(['user_id' => $customer->id, 'balance' => 25_000]);
     $order = createAdminManagedOrder($branch, $customer, OrderStatus::Delivered);
+    $order->update(['payment_method' => PaymentMethod::Wallet]);
     app(PaymentService::class)->createForOrder($order, PaymentStatus::Paid);
     $refund = createAdminManagedRefund(
         $order,
@@ -409,6 +508,122 @@ test('admin order filters reject unsupported contract values', function (): void
     $this->getJson('/api/v1/admin/orders?status=unknown')->assertUnprocessable();
     $this->getJson('/api/v1/admin/orders?branch_id=0')->assertUnprocessable();
     $this->getJson('/api/v1/admin/orders?per_page=101')->assertUnprocessable();
+    $this->getJson('/api/v1/admin/orders?sort_by=raw_sql')->assertUnprocessable();
+    $this->getJson('/api/v1/admin/orders?sort_direction=sideways')->assertUnprocessable();
+    $this->getJson('/api/v1/admin/orders?date_from=31-12-2026')->assertUnprocessable();
+});
+
+test('admin order list composes date search branch status and whitelisted sorting', function (): void {
+    $branch = createOrderAdminBranch('V2');
+    $otherBranch = createOrderAdminBranch('V2O');
+    $customer = User::factory()->create([
+        'role' => UserRole::Customer,
+        'name' => 'Customer Orders V2',
+        'phone' => '0909123456',
+    ]);
+    $older = createAdminManagedOrder($branch, $customer, OrderStatus::Pending, 'MZ-V2-OLD');
+    $newer = createAdminManagedOrder($branch, $customer, OrderStatus::Pending, 'MZ-V2-NEW');
+    $excluded = createAdminManagedOrder($otherBranch, $customer, OrderStatus::Pending, 'MZ-V2-OTHER');
+    foreach ([
+        [$older, 100_000, '2026-08-10 09:00:00'],
+        [$newer, 500_000, '2026-08-12 09:00:00'],
+        [$excluded, 900_000, '2026-08-12 09:00:00'],
+    ] as [$order, $amount, $createdAt]) {
+        $order->timestamps = false;
+        $order->forceFill(['total_amount' => $amount, 'created_at' => $createdAt])->save();
+    }
+    $this->actingAs(User::factory()->create(['role' => UserRole::SuperAdmin]));
+
+    $url = "/api/v1/admin/orders?branch_id={$branch->id}&status=pending&keyword=0909123456&date_from=2026-08-01&date_to=2026-08-31&sort_by=total_amount&per_page=1";
+    $this->getJson($url.'&sort_direction=asc')
+        ->assertOk()
+        ->assertJsonPath('meta.pagination.total', 2)
+        ->assertJsonPath('data.0.id', $older->id);
+
+    $this->getJson($url.'&sort_direction=desc')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $newer->id);
+});
+
+test('admin order search covers registered customer and checkout snapshots', function (): void {
+    $branch = createOrderAdminBranch('OS');
+    $customer = User::factory()->create([
+        'role' => UserRole::Customer,
+        'name' => 'Nguyễn Hải Yến',
+        'email' => 'haiyen.orders@example.test',
+        'phone' => '0912345678',
+    ]);
+    $registered = createAdminManagedOrder($branch, $customer, OrderStatus::Pending, 'MZ-SEARCH-AUTH');
+    $registered->update([
+        'recipient_name' => 'Trần Người Nhận',
+        'recipient_phone' => '0988777666',
+    ]);
+    $guest = createAdminManagedOrder($branch, $customer, OrderStatus::Pending, 'MZ-SEARCH-GUEST');
+    $guest->update([
+        'user_id' => null,
+        'channel' => 'counter',
+        'customer_name' => 'Khách POS Bảo Châu',
+        'customer_phone' => '0905111222',
+    ]);
+    createAdminManagedOrder($branch, User::factory()->create(['role' => UserRole::Customer]));
+    $this->actingAs(User::factory()->create(['role' => UserRole::SuperAdmin]));
+
+    foreach (['0912345678', '123456', 'Nguyễn Hải Yến', 'Hải Yến', 'haiyen.orders', 'Trần Người Nhận', '877766'] as $keyword) {
+        $this->getJson('/api/v1/admin/orders?keyword='.urlencode($keyword))
+            ->assertOk()
+            ->assertJsonPath('meta.pagination.total', 1)
+            ->assertJsonPath('data.0.id', $registered->id);
+    }
+
+    foreach (['Khách POS Bảo Châu', 'Bảo Châu', '0905111222', '511122'] as $keyword) {
+        $this->getJson('/api/v1/admin/orders?keyword='.urlencode($keyword))
+            ->assertOk()
+            ->assertJsonPath('meta.pagination.total', 1)
+            ->assertJsonPath('data.0.id', $guest->id);
+    }
+});
+
+test('completed is the single admin contract for persisted delivered orders', function (): void {
+    $branch = createOrderAdminBranch('OC');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    $completed = createAdminManagedOrder($branch, $customer, OrderStatus::Delivered, 'MZ-COMPLETED');
+    createAdminManagedOrder($branch, $customer, OrderStatus::Pending, 'MZ-NOT-COMPLETED');
+    $this->actingAs(User::factory()->create(['role' => UserRole::SuperAdmin]));
+
+    $this->getJson('/api/v1/admin/orders?status=completed')
+        ->assertOk()
+        ->assertJsonPath('meta.pagination.total', 1)
+        ->assertJsonPath('data.0.id', $completed->id)
+        ->assertJsonPath('data.0.status', 'completed')
+        ->assertJsonPath('data.0.status_label', 'Hoàn thành');
+});
+
+test('admin order counts are lightweight and branch scoped', function (): void {
+    $ownBranch = createOrderAdminBranch('OCOUNT');
+    $otherBranch = createOrderAdminBranch('OCOUNTO');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    createAdminManagedOrder($ownBranch, $customer, OrderStatus::Pending);
+    createAdminManagedOrder($ownBranch, $customer, OrderStatus::Pending);
+    createAdminManagedOrder($ownBranch, $customer, OrderStatus::Processing);
+    createAdminManagedOrder($ownBranch, $customer, OrderStatus::Shipping);
+    createAdminManagedOrder($ownBranch, $customer, OrderStatus::RefundRequested);
+    createAdminManagedOrder($otherBranch, $customer, OrderStatus::Pending);
+
+    $manager = User::factory()->create([
+        'role' => UserRole::BranchManager,
+        'branch_id' => $ownBranch->id,
+    ]);
+    $this->actingAs($manager)->getJson('/api/v1/admin/orders/counts')
+        ->assertOk()
+        ->assertJsonPath('data.pending', 2)
+        ->assertJsonPath('data.processing', 1)
+        ->assertJsonPath('data.shipping', 1)
+        ->assertJsonPath('data.refund', 1);
+
+    $this->actingAs(User::factory()->create(['role' => UserRole::SuperAdmin]))
+        ->getJson('/api/v1/admin/orders/counts')
+        ->assertOk()
+        ->assertJsonPath('data.pending', 3);
 });
 
 test('admin order detail exposes payment delivery shipment and allowed actions', function (): void {
@@ -499,13 +714,115 @@ test('admin order detail exposes payment delivery shipment and allowed actions',
         ->assertJsonPath('data.delivery_address.full_address', '123 Test Street, Can Tho')
         ->assertJsonPath('data.shipment.tracking_code', 'GHN-ADMIN-001')
         ->assertJsonPath('data.shipment.status', 'ready_to_pick')
-        ->assertJsonPath('data.items.0.image_url', '/storage/qa/admin-order-item.webp')
+        ->assertJsonPath('data.items.0.image_url', Storage::disk('public')->url('qa/admin-order-item.webp'))
         ->assertJsonPath('data.items.0.brand_id', $brand->id)
         ->assertJsonPath('data.items.0.brand_name', $brand->name)
         ->assertJsonPath('data.items.0.brand_slug', $brand->slug)
         ->assertJsonPath('data.allowed_actions.0', 'shipment_label')
         ->assertJsonPath('data.allowed_actions.1', 'cancel_shipment')
         ->assertJsonPath('data.note', 'Giao trong giờ hành chính');
+});
+
+test('cancelled GHN shipment cannot generate a new print token', function (): void {
+    $branch = createOrderAdminBranch('LC');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    $order = createAdminManagedOrder($branch, $customer, OrderStatus::Processing);
+    $order->update(['fulfillment_method' => 'shipping']);
+    app(PaymentService::class)->createForOrder($order, PaymentStatus::Pending);
+    Shipment::query()->create([
+        'order_id' => $order->id,
+        'provider' => 'ghn',
+        'ghn_order_code' => 'GHN-CANCELLED-LABEL',
+        'status' => 'cancelled',
+        'shipping_fee' => 30_000,
+        'cancelled_at' => now(),
+    ]);
+    $ghn = Mockery::mock(GhnClient::class);
+    $ghn->shouldNotReceive('generatePrintToken');
+    app()->instance(GhnClient::class, $ghn);
+    $this->actingAs(User::factory()->create(['role' => UserRole::SuperAdmin]));
+
+    $this->postJson("/api/v1/admin/orders/{$order->id}/shipment/label")
+        ->assertUnprocessable()
+        ->assertJsonPath('data.errors.status.0', 'Không thể in nhãn cho vận đơn ở trạng thái hiện tại');
+
+    $this->getJson("/api/v1/admin/orders/{$order->id}")
+        ->assertOk()
+        ->assertJsonMissing(['shipment_label']);
+});
+
+test('local manual shipment flow uses webhook synchronization and records delivered COD collection', function (): void {
+    config()->set('shipping.manual_transitions_enabled', true);
+    $branch = createOrderAdminBranch('MS');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    $order = createAdminManagedOrder($branch, $customer, OrderStatus::Processing);
+    $order->update(['fulfillment_method' => 'shipping']);
+    $payment = app(PaymentService::class)->createForOrder($order, PaymentStatus::Pending);
+    $shipment = Shipment::query()->create([
+        'order_id' => $order->id,
+        'provider' => 'ghn',
+        'ghn_order_code' => 'GHN-MANUAL-DEMO',
+        'status' => 'ready_to_pick',
+        'shipping_fee' => 30_000,
+    ]);
+    $admin = User::factory()->create(['role' => UserRole::SuperAdmin]);
+    $this->actingAs($admin);
+
+    $this->postJson("/api/v1/admin/orders/{$order->id}/shipment/simulate/picked")
+        ->assertOk()
+        ->assertJsonPath('data.shipment.status', 'in_transit')
+        ->assertJsonPath('data.status', OrderStatus::Shipping->value);
+    $this->postJson("/api/v1/admin/orders/{$order->id}/shipment/simulate/delivering")
+        ->assertOk()
+        ->assertJsonPath('data.shipment.status', 'out_for_delivery');
+    $this->postJson("/api/v1/admin/orders/{$order->id}/shipment/simulate/delivered")
+        ->assertOk()
+        ->assertJsonPath('data.shipment.status', 'delivered')
+        ->assertJsonPath('data.status', 'completed')
+        ->assertJsonPath('data.payment_status', PaymentStatus::Paid->value)
+        ->assertJsonPath('data.allowed_actions', []);
+
+    expect($shipment->refresh()->delivered_at)->not->toBeNull()
+        ->and($payment->refresh()->status)->toBe(PaymentStatus::Paid)
+        ->and($payment->paid_at)->not->toBeNull()
+        ->and($payment->provider_response['collection_source'])->toBe('shipment_delivered');
+
+    $this->postJson("/api/v1/admin/orders/{$order->id}/shipment/simulate/delivering")
+        ->assertUnprocessable();
+
+    $this->postJson("/api/v1/admin/orders/{$order->id}/payment/cod/confirm")
+        ->assertOk()
+        ->assertJsonPath('data.payment_status', PaymentStatus::Paid->value);
+});
+
+test('GHN simulator applies failure and return events while rejecting terminal reversal', function (): void {
+    config()->set('shipping.manual_transitions_enabled', true);
+    $branch = createOrderAdminBranch('SR');
+    $customer = User::factory()->create(['role' => UserRole::Customer]);
+    $order = createAdminManagedOrder($branch, $customer, OrderStatus::Shipping);
+    $order->update(['fulfillment_method' => 'shipping']);
+    Shipment::query()->create([
+        'order_id' => $order->id,
+        'provider' => 'ghn',
+        'ghn_order_code' => 'GHN-SIM-RETURN',
+        'status' => 'out_for_delivery',
+        'shipping_fee' => 30_000,
+    ]);
+    $admin = User::factory()->create(['role' => UserRole::SuperAdmin]);
+    $this->actingAs($admin);
+
+    $this->postJson("/api/v1/admin/orders/{$order->id}/shipment/simulate/delivery-fail")
+        ->assertOk()
+        ->assertJsonPath('data.shipment.raw_status', 'delivery_fail')
+        ->assertJsonPath('data.shipment.logistics_stage', 'delivery_failed');
+    $this->postJson("/api/v1/admin/orders/{$order->id}/shipment/simulate/waiting-to-return")
+        ->assertOk()
+        ->assertJsonPath('data.shipment.logistics_stage', 'waiting_return');
+    $this->postJson("/api/v1/admin/orders/{$order->id}/shipment/simulate/returned")
+        ->assertOk()
+        ->assertJsonPath('data.shipment.logistics_stage', 'returned');
+    $this->postJson("/api/v1/admin/orders/{$order->id}/shipment/simulate/delivering")
+        ->assertUnprocessable();
 });
 
 test('admin processes only confirmed paid or COD orders within branch scope', function (): void {

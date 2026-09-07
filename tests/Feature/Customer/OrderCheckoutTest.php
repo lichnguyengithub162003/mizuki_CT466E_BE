@@ -29,11 +29,13 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
+    Storage::fake('public');
     $this->withHeader('Idempotency-Key', 'checkout-test-' . Str::uuid());
 });
 
@@ -822,6 +824,8 @@ test('customer order detail preserves delivery snapshot and exposes shipment tra
 });
 
 test('customer order detail prioritizes the variants authoritative product image', function (): void {
+    Storage::disk('public')->put('catalog/products/product-primary.webp', 'image');
+    Storage::disk('public')->put('catalog/products/variant-primary.webp', 'image');
     $context = createOrderCheckoutContext(false);
     $order = createExistingCustomerOrder($context['user'], $context['branch']);
     $item = $order->items()->create([
@@ -856,6 +860,7 @@ test('customer order detail prioritizes the variants authoritative product image
 });
 
 test('customer order detail falls back to the product primary image', function (): void {
+    Storage::disk('public')->put('catalog/products/product-primary.webp', 'image');
     $context = createOrderCheckoutContext(false);
     $order = createExistingCustomerOrder($context['user'], $context['branch']);
     $item = $order->items()->create([

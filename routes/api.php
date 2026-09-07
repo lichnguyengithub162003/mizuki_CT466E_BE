@@ -244,6 +244,11 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
                     ->name('shipment.cancel');
                 Route::post('{id}/shipment/label', [AdminOrderController::class, 'shipmentLabel'])
                     ->name('shipment.label');
+                Route::post('{id}/shipment/simulate/{transition}', [AdminOrderController::class, 'manualShipmentTransition'])
+                    ->whereIn('transition', ['picked', 'delivering', 'delivered', 'delivery-fail', 'waiting-to-return', 'returned'])
+                    ->name('shipment.simulate');
+                Route::post('{id}/payment/cod/confirm', [AdminOrderController::class, 'confirmCodPayment'])
+                    ->name('payment.cod.confirm');
                 Route::get('{id}', [AdminOrderController::class, 'show'])->name('show');
             });
 

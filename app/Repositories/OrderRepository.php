@@ -124,8 +124,11 @@ class OrderRepository extends BaseRepository
             )
             ->with(['payment', 'shipment', 'refunds'])
             ->withCount('items')
-            ->orderByDesc('created_at')
-            ->orderByDesc('id')
+            ->when(
+                ($filters['sort'] ?? 'newest') === 'oldest',
+                fn (Builder $query): Builder => $query->orderBy('created_at')->orderBy('id'),
+                fn (Builder $query): Builder => $query->orderByDesc('created_at')->orderByDesc('id'),
+            )
             ->paginate($perPage);
     }
 
@@ -207,6 +210,39 @@ class OrderRepository extends BaseRepository
                         ? OrderStatus::Delivered->value
                         : $filters['status'],
                 ),
+            )
+            ->when(
+                (bool) ($filters['shipping_only'] ?? false),
+                fn (Builder $query): Builder => $query->where('fulfillment_method', 'shipping'),
+            )
+            ->when(
+                filled($filters['shipment_status'] ?? null),
+                function (Builder $query) use ($filters): void {
+                    $stage = (string) $filters['shipment_status'];
+
+                    if ($stage === 'not_created') {
+                        $query->whereDoesntHave('shipment');
+                        return;
+                    }
+
+                    $statuses = match ($stage) {
+                        'waiting_pickup' => ['pending', 'ready_to_pick', 'picking'],
+                        'picked_up', 'in_transit' => ['in_transit'],
+                        'out_for_delivery' => ['out_for_delivery'],
+                        'delivery_failed' => ['delivery_failed'],
+                        'waiting_return', 'returning' => ['returning'],
+                        'returned' => ['returned'],
+                        'delivered' => ['delivered'],
+                        'cancelled' => ['cancelled'],
+                        'exception' => ['failed'],
+                        default => [$stage],
+                    };
+
+                    $query->whereHas(
+                        'shipment',
+                        fn (Builder $shipment): Builder => $shipment->whereIn('status', $statuses),
+                    );
+                },
             )
             ->when(
                 filled($filters['keyword'] ?? null),
@@ -366,6 +402,11 @@ class OrderRepository extends BaseRepository
         return $this->markStatus($order, OrderStatus::Processing);
     }
 
+    public function markShipping(Order $order): Order
+    {
+        return $this->markStatus($order, OrderStatus::Shipping);
+    }
+
     public function markDelivered(Order $order): Order
     {
         return $this->markStatus($order, OrderStatus::Delivered);
@@ -385,6 +426,15 @@ class OrderRepository extends BaseRepository
             $inventory->decrement('quantity', $item->quantity);
             $inventory->decrement('reserved_quantity', $item->quantity);
         }
+    }
+
+    public function lockForShipmentSync(int $orderId): ?Order
+    {
+        return $this->query()
+            ->whereKey($orderId)
+            ->with(['items', 'payment'])
+            ->lockForUpdate()
+            ->first();
     }
 
     private function markStatus(Order $order, OrderStatus $status): Order

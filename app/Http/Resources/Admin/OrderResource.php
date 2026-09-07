@@ -3,6 +3,9 @@
 namespace App\Http\Resources\Admin;
 
 use App\Enums\OrderStatus;
+use App\Enums\PaymentMethod;
+use App\Enums\PaymentStatus;
+use App\Http\Resources\Concerns\SerializesMedia;
 use App\Models\OrderItem;
 use App\Models\ProductImage;
 use Illuminate\Http\Request;
@@ -11,6 +14,8 @@ use Illuminate\Support\Collection;
 
 class OrderResource extends JsonResource
 {
+    use SerializesMedia;
+
     /** @return array<string, mixed> */
     public function toArray(Request $request): array
     {
@@ -66,6 +71,10 @@ class OrderResource extends JsonResource
                 'provider' => $this->shipment->provider,
                 'tracking_code' => $this->shipment->ghn_order_code,
                 'status' => $this->shipment->status,
+                'status_label' => $this->shipment->statusLabel(),
+                'raw_status' => $this->shipment->providerStatus(),
+                'logistics_stage' => $this->shipment->logisticsStage(),
+                'logistics_stage_label' => $this->shipment->logisticsStageLabel(),
                 'shipping_fee' => $this->shipment->shipping_fee,
                 'expected_delivery_at' => $this->shipment->expected_delivery_at?->toISOString(),
                 'shipped_at' => $this->shipment->shipped_at?->toISOString(),
@@ -128,7 +137,9 @@ class OrderResource extends JsonResource
     /** @param  Collection<int, ProductImage>  $images */
     private function primaryImageUrl(Collection $images): ?string
     {
-        return ($images->firstWhere('is_primary', true) ?? $images->first())?->image_url;
+        return $this->mediaUrl(
+            ($images->firstWhere('is_primary', true) ?? $images->first())?->image_url,
+        );
     }
 
     /** @return list<string> */
@@ -145,9 +156,7 @@ class OrderResource extends JsonResource
 
         if ($this->shipment?->provider === 'ghn'
             && filled($this->shipment->ghn_order_code)) {
-            $actions[] = 'shipment_label';
-
-            if (in_array($this->shipment->status, [
+            $printableStatuses = [
                 'pending',
                 'ready_to_pick',
                 'picking',
@@ -155,9 +164,46 @@ class OrderResource extends JsonResource
                 'out_for_delivery',
                 'delivery_failed',
                 'returning',
-            ], true)) {
+            ];
+            $cancellableStatuses = [
+                'pending',
+                'ready_to_pick',
+                'picking',
+                'in_transit',
+                'out_for_delivery',
+                'delivery_failed',
+                'returning',
+            ];
+
+            if (in_array($this->shipment->status, $printableStatuses, true)) {
+                $actions[] = 'shipment_label';
+            }
+
+            if (in_array($this->shipment->status, $cancellableStatuses, true)) {
                 $actions[] = 'cancel_shipment';
             }
+
+            if (config('shipping.manual_transitions_enabled')) {
+                $manualActions = match ($this->shipment->status) {
+                    'pending', 'ready_to_pick', 'picking' => ['shipment_simulate_picked'],
+                    'in_transit' => ['shipment_simulate_delivering'],
+                    'out_for_delivery' => [
+                        'shipment_simulate_delivered',
+                        'shipment_simulate_delivery_failed',
+                    ],
+                    'delivery_failed' => ['shipment_simulate_waiting_return'],
+                    'returning' => ['shipment_simulate_returned'],
+                    default => [],
+                };
+                array_push($actions, ...$manualActions);
+            }
+        }
+
+        if ($this->fulfillment_method === 'shipping'
+            && $this->status === OrderStatus::Delivered
+            && $this->payment_method === PaymentMethod::Cash
+            && $this->payment?->status === PaymentStatus::Pending) {
+            $actions[] = 'confirm_cod_payment';
         }
 
         return array_values(array_unique($actions));
