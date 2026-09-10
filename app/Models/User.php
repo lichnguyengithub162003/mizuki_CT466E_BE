@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\StaffEmploymentStatus;
 use App\Enums\UserRole;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -14,12 +15,33 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-#[Fillable(['name', 'email', 'password', 'role', 'branch_id', 'phone', 'avatar'])]
+#[Fillable(['name', 'email', 'password', 'role', 'branch_id', 'phone', 'avatar', 'job_title', 'employment_status'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
+
+    protected static function booted(): void
+    {
+        static::saving(function (User $user): void {
+            if ($user->role instanceof UserRole
+                && $user->role !== UserRole::Customer
+                && $user->employment_status === null) {
+                $user->employment_status = StaffEmploymentStatus::Working;
+            }
+        });
+
+        static::saved(function (User $user): void {
+            if ($user->role instanceof UserRole
+                && $user->role !== UserRole::Customer
+                && $user->staff_code === null) {
+                $user->forceFill([
+                    'staff_code' => 'NV-'.str_pad((string) $user->id, 5, '0', STR_PAD_LEFT),
+                ])->saveQuietly();
+            }
+        });
+    }
 
     /**
      * Get the attributes that should be cast.
@@ -32,6 +54,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'role' => UserRole::class,
+            'employment_status' => StaffEmploymentStatus::class,
         ];
     }
 

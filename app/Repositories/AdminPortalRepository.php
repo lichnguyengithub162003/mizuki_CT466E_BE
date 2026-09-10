@@ -2,9 +2,9 @@
 
 namespace App\Repositories;
 
-use App\Enums\AppointmentStatus;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
+use App\Enums\StaffEmploymentStatus;
 use App\Enums\UserRole;
 use App\Models\Appointment;
 use App\Models\Branch;
@@ -22,12 +22,15 @@ use App\Support\MediaUrl;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class AdminPortalRepository
 {
-    public function __construct(private readonly MediaUrl $mediaUrl) {}
+    public function __construct(private readonly MediaUrl $mediaUrl)
+    {
+        //
+    }
 
     /** @param array<string, mixed> $filters @return array<string, mixed> */
     public function dashboard(User $actor, array $filters): array
@@ -307,7 +310,7 @@ class AdminPortalRepository
             $inventory->quantity = $quantityAfter;
             $inventory->save();
             $inventory->transactions()->create([
-                'transaction_number' => 'ADJ-'.now()->format('YmdHis').'-'.strtoupper(substr((string) \Illuminate\Support\Str::uuid(), 0, 8)),
+                'transaction_number' => 'ADJ-'.now()->format('YmdHis').'-'.strtoupper(substr((string) Str::uuid(), 0, 8)),
                 'performed_by_user_id' => $actor->id,
                 'type' => 'adjustment',
                 'quantity_delta' => (int) $data['quantity_delta'],
@@ -358,24 +361,31 @@ class AdminPortalRepository
     public function staff(User $actor, array $filters): LengthAwarePaginator
     {
         return User::query()->where('role', '!=', UserRole::Customer->value)->with('branch:id,code,name')
-            ->when($actor->role === UserRole::BranchManager, fn (Builder $query) => $query->where('branch_id', $actor->branch_id ?? 0)->whereIn('role', [UserRole::Cashier->value, UserRole::Technician->value]))
+            ->when($actor->role === UserRole::BranchManager, fn (Builder $query) => $query->where('branch_id', $actor->branch_id ?? 0)->where('role', '!=', UserRole::SuperAdmin->value))
             ->when(isset($filters['branch_id']) && $actor->role === UserRole::SuperAdmin, fn (Builder $query) => $query->where('branch_id', $filters['branch_id']))
+            ->when(isset($filters['role']), fn (Builder $query) => $query->where('role', $filters['role']))
+            ->when(isset($filters['status']), fn (Builder $query) => $query->where('employment_status', $filters['status']))
             ->when(filled($filters['search'] ?? null), function (Builder $query) use ($filters): void {
                 $search = trim((string) $filters['search']);
-                $query->where(fn (Builder $nested) => $nested->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%")->orWhere('phone', 'like', "%{$search}%"));
+                $query->where(fn (Builder $nested) => $nested->where('staff_code', 'like', "%{$search}%")->orWhere('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%")->orWhere('phone', 'like', "%{$search}%")->orWhere('job_title', 'like', "%{$search}%"));
             })->latest()->paginate((int) ($filters['per_page'] ?? 15));
     }
 
     public function staffMember(User $actor, int $id): ?User
     {
         return User::query()->where('role', '!=', UserRole::Customer->value)
-            ->when($actor->role === UserRole::BranchManager, fn (Builder $query) => $query->where('branch_id', $actor->branch_id ?? 0)->whereIn('role', [UserRole::Cashier->value, UserRole::Technician->value]))
+            ->when($actor->role === UserRole::BranchManager, fn (Builder $query) => $query->where('branch_id', $actor->branch_id ?? 0)->where('role', '!=', UserRole::SuperAdmin->value))
             ->with('branch:id,code,name')->find($id);
     }
 
     /** @param array<string, mixed> $data */
     public function saveStaff(?User $staff, array $data): User
     {
+        if (array_key_exists('status', $data)) {
+            $data['employment_status'] = StaffEmploymentStatus::from((string) $data['status']);
+            unset($data['status']);
+        }
+
         $staff ??= new User;
         $staff->fill($data)->save();
 
