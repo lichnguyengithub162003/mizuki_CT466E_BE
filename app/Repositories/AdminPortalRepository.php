@@ -2,7 +2,7 @@
 
 namespace App\Repositories;
 
-use App\Enums\AppointmentStatus;
+use App\Enums\BranchStatus;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Enums\UserRole;
@@ -22,12 +22,15 @@ use App\Support\MediaUrl;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class AdminPortalRepository
 {
-    public function __construct(private readonly MediaUrl $mediaUrl) {}
+    public function __construct(private readonly MediaUrl $mediaUrl)
+    {
+        //
+    }
 
     /** @param array<string, mixed> $filters @return array<string, mixed> */
     public function dashboard(User $actor, array $filters): array
@@ -307,7 +310,7 @@ class AdminPortalRepository
             $inventory->quantity = $quantityAfter;
             $inventory->save();
             $inventory->transactions()->create([
-                'transaction_number' => 'ADJ-'.now()->format('YmdHis').'-'.strtoupper(substr((string) \Illuminate\Support\Str::uuid(), 0, 8)),
+                'transaction_number' => 'ADJ-'.now()->format('YmdHis').'-'.strtoupper(substr((string) Str::uuid(), 0, 8)),
                 'performed_by_user_id' => $actor->id,
                 'type' => 'adjustment',
                 'quantity_delta' => (int) $data['quantity_delta'],
@@ -327,7 +330,8 @@ class AdminPortalRepository
         return Branch::query()->with(['businessHours' => fn ($query) => $query->orderBy('weekday')])
             ->when($actor->role === UserRole::BranchManager, fn (Builder $query) => $query->whereKey($actor->branch_id ?? 0))
             ->when(filled($filters['search'] ?? null), fn (Builder $query) => $query->where('name', 'like', '%'.trim((string) $filters['search']).'%'))
-            ->when(array_key_exists('is_active', $filters), fn (Builder $query) => $query->where('is_active', (bool) $filters['is_active']))
+            ->when(isset($filters['status']), fn (Builder $query) => $query->where('status', $filters['status']))
+            ->when(! isset($filters['status']) && array_key_exists('is_active', $filters), fn (Builder $query) => $query->where('is_active', (bool) $filters['is_active']))
             ->orderBy('name')->paginate((int) ($filters['per_page'] ?? 15));
     }
 
@@ -343,6 +347,13 @@ class AdminPortalRepository
         return DB::transaction(function () use ($branch, $data): Branch {
             $hours = $data['business_hours'] ?? null;
             unset($data['business_hours']);
+            if (array_key_exists('status', $data)) {
+                $status = BranchStatus::from((string) $data['status']);
+                $data['status'] = $status;
+                $data['is_active'] = $status->isActive();
+            } elseif (array_key_exists('is_active', $data)) {
+                $data['status'] = BranchStatus::fromLegacyIsActive((bool) $data['is_active']);
+            }
             $branch->fill($data)->save();
             if (is_array($hours)) {
                 foreach ($hours as $hour) {
