@@ -2,6 +2,7 @@
 
 namespace App\Repositories;
 
+use App\Enums\AppointmentStatus;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Enums\StaffEmploymentStatus;
@@ -14,9 +15,12 @@ use App\Models\Category;
 use App\Models\InventoryTransaction;
 use App\Models\Order;
 use App\Models\Payment;
+use App\Models\PosSession;
 use App\Models\Product;
 use App\Models\Refund;
 use App\Models\Review;
+use App\Models\StaffAssignment;
+use App\Models\StaffLifecycleEvent;
 use App\Models\User;
 use App\Support\MediaUrl;
 use Carbon\CarbonImmutable;
@@ -24,6 +28,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class AdminPortalRepository
 {
@@ -373,9 +378,9 @@ class AdminPortalRepository
 
     public function staffMember(User $actor, int $id): ?User
     {
-        return User::query()->where('role', '!=', UserRole::Customer->value)
-            ->when($actor->role === UserRole::BranchManager, fn (Builder $query) => $query->where('branch_id', $actor->branch_id ?? 0)->where('role', '!=', UserRole::SuperAdmin->value))
-            ->with('branch:id,code,name')->find($id);
+        return $this->staffVisibilityQuery($actor)
+            ->with($this->staffDetailRelations())
+            ->find($id);
     }
 
     /** @param array<string, mixed> $data */
@@ -386,10 +391,216 @@ class AdminPortalRepository
             unset($data['status']);
         }
 
-        $staff ??= new User;
-        $staff->fill($data)->save();
+        return DB::transaction(function () use ($staff, $data): User {
+            $creating = $staff === null;
+            $staff = $creating
+                ? new User
+                : User::query()->lockForUpdate()->findOrFail($staff->id);
+            $actor = auth()->user();
+            $actorId = $actor instanceof User ? $actor->id : null;
+            $before = $creating ? null : $this->staffState($staff);
+            $targetRole = isset($data['role']) ? UserRole::from((string) $data['role']) : ($staff->role ?? UserRole::Customer);
+            $targetStatus = isset($data['employment_status'])
+                ? ($data['employment_status'] instanceof StaffEmploymentStatus
+                    ? $data['employment_status']
+                    : StaffEmploymentStatus::from((string) $data['employment_status']))
+                : ($staff->employment_status ?? StaffEmploymentStatus::Working);
+            $targetBranchId = array_key_exists('branch_id', $data) ? $data['branch_id'] : $staff->branch_id;
+            $this->assertSensibleAssignmentTarget(
+                $targetRole,
+                $targetBranchId,
+                $this->defaultWorkArea($targetRole),
+            );
 
-        return $staff->refresh()->load('branch:id,code,name');
+            if (! $creating) {
+                $this->assertPreservesUsableSuperAdmin($staff, $targetRole, $targetStatus, false);
+                if ($this->assignmentScopeChanges($before, $data)
+                    || ($staff->employment_status === StaffEmploymentStatus::Working && $targetStatus === StaffEmploymentStatus::Left)) {
+                    $this->assertNoStaffBlockers($staff);
+                }
+            }
+
+            $staff->fill($data)->save();
+
+            if ($creating) {
+                $assignment = $staff->employment_status === StaffEmploymentStatus::Working
+                    ? $this->createStaffAssignment($staff, $actorId, $staff->created_at, $this->defaultWorkArea($staff->role), 'Tạo tài khoản nhân viên')
+                    : null;
+                $this->recordStaffEvent($staff, StaffLifecycleEvent::ACCOUNT_CREATED, $actorId, $assignment?->id, [
+                    'state' => $this->staffState($staff),
+                ], 'Tạo tài khoản nhân viên');
+            } else {
+                $this->synchronizeStaffHistoryAfterMutation($staff, $before, $actorId);
+            }
+
+            return $this->loadStaffDetail($staff->refresh());
+        });
+    }
+
+    /** @param array<string, mixed> $target */
+    public function staffAssignmentPreflight(User $actor, int $id, array $target): ?array
+    {
+        $staff = $this->staffVisibilityQuery($actor)->find($id);
+        if ($staff === null) {
+            return null;
+        }
+
+        $this->assertCanChangeAssignment($actor, $staff, $target);
+
+        return $this->staffBlockers($staff);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function changeStaffAssignment(User $actor, int $id, array $data): ?User
+    {
+        $visible = $this->staffVisibilityQuery($actor)->find($id);
+        if ($visible === null) {
+            return null;
+        }
+
+        return DB::transaction(function () use ($actor, $id, $data): User {
+            $staff = User::query()->lockForUpdate()->findOrFail($id);
+            $this->assertCanChangeAssignment($actor, $staff, $data);
+            if ($staff->employment_status !== StaffEmploymentStatus::Working) {
+                throw ValidationException::withMessages([
+                    'status' => ['Chỉ có thể thay đổi phân công cho nhân viên đang làm việc'],
+                ]);
+            }
+
+            $current = $this->ensureCurrentStaffAssignment($staff, $actor->id);
+            $targetRole = isset($data['role']) ? UserRole::from((string) $data['role']) : $staff->role;
+            $target = [
+                'branch_id' => array_key_exists('branch_id', $data) ? $data['branch_id'] : $staff->branch_id,
+                'role' => $targetRole,
+                'job_title' => array_key_exists('job_title', $data) ? $data['job_title'] : $staff->job_title,
+                'work_area' => array_key_exists('work_area', $data)
+                    ? $data['work_area']
+                    : ($targetRole === $staff->role ? $current?->work_area : $this->defaultWorkArea($targetRole)),
+            ];
+            $this->assertSensibleAssignmentTarget($target['role'], $target['branch_id'], $target['work_area']);
+
+            $before = [
+                'branch_id' => $staff->branch_id,
+                'role' => $staff->role->value,
+                'job_title' => $staff->job_title,
+                'work_area' => $current?->work_area,
+            ];
+            $after = [
+                'branch_id' => $target['branch_id'],
+                'role' => $target['role']->value,
+                'job_title' => $target['job_title'],
+                'work_area' => $target['work_area'],
+            ];
+            if ($before === $after) {
+                throw ValidationException::withMessages([
+                    'assignment' => ['Phân công mới không có thay đổi so với phân công hiện tại'],
+                ]);
+            }
+
+            $this->assertPreservesUsableSuperAdmin($staff, $target['role'], $staff->employment_status, false);
+            $this->assertNoStaffBlockers($staff);
+            $effectiveFrom = isset($data['effective_from']) ? CarbonImmutable::parse($data['effective_from']) : CarbonImmutable::now();
+            if ($current !== null && $effectiveFrom->lt($current->effective_from)) {
+                throw ValidationException::withMessages([
+                    'effective_from' => ['Thời điểm áp dụng không được trước phân công hiện tại'],
+                ]);
+            }
+
+            $this->closeCurrentStaffAssignment($staff, $effectiveFrom, $current);
+            $staff->forceFill([
+                'branch_id' => $target['branch_id'],
+                'role' => $target['role'],
+                'job_title' => $target['job_title'],
+            ])->save();
+            $assignment = $this->createStaffAssignment(
+                $staff,
+                $actor->id,
+                $effectiveFrom,
+                $target['work_area'],
+                $data['reason'] ?? null,
+            );
+            $this->recordAssignmentEvents($staff, $actor->id, $assignment->id, $before, $after, $data['reason'] ?? null);
+
+            return $this->loadStaffDetail($staff->refresh());
+        });
+    }
+
+    public function changeStaffEmploymentStatus(User $actor, int $id, string $status): ?User
+    {
+        $visible = $this->staffVisibilityQuery($actor)->find($id);
+        if ($visible === null) {
+            return null;
+        }
+
+        return DB::transaction(function () use ($actor, $id, $status): User {
+            $staff = User::query()->lockForUpdate()->findOrFail($id);
+            $this->assertCanManageStaff($actor, $staff);
+            $target = StaffEmploymentStatus::from($status);
+            if ($staff->employment_status === $target) {
+                throw ValidationException::withMessages([
+                    'status' => ['Trạng thái làm việc mới trùng với trạng thái hiện tại'],
+                ]);
+            }
+
+            $this->assertPreservesUsableSuperAdmin($staff, $staff->role, $target, false);
+            if ($target === StaffEmploymentStatus::Left) {
+                $this->assertNoStaffBlockers($staff);
+            }
+
+            $before = $staff->employment_status;
+            $staff->forceFill(['employment_status' => $target])->save();
+            if ($target === StaffEmploymentStatus::Left) {
+                $this->closeCurrentStaffAssignment($staff, CarbonImmutable::now());
+            } else {
+                $this->ensureCurrentStaffAssignment($staff, $actor->id, 'Nhân viên quay lại làm việc');
+            }
+            $this->recordStaffEvent($staff, StaffLifecycleEvent::EMPLOYMENT_STATUS_CHANGED, $actor->id, null, [
+                'from' => $before->value,
+                'to' => $target->value,
+            ], "Thay đổi trạng thái từ {$before->label()} sang {$target->label()}");
+
+            return $this->loadStaffDetail($staff->refresh());
+        });
+    }
+
+    public function trashStaff(User $actor, int $id): ?User
+    {
+        $visible = $this->staffVisibilityQuery($actor)->find($id);
+        if ($visible === null) {
+            return null;
+        }
+
+        return DB::transaction(function () use ($actor, $id): User {
+            $staff = User::query()->lockForUpdate()->findOrFail($id);
+            $this->assertCanManageStaff($actor, $staff);
+            $this->assertPreservesUsableSuperAdmin($staff, $staff->role, $staff->employment_status, true);
+            $this->assertNoStaffBlockers($staff);
+            $this->closeCurrentStaffAssignment($staff, CarbonImmutable::now());
+            $this->recordStaffEvent($staff, StaffLifecycleEvent::TRASHED, $actor->id, null, [], 'Chuyển nhân viên vào thùng rác');
+            $staff->delete();
+
+            return $this->loadStaffDetail($staff);
+        });
+    }
+
+    public function restoreStaff(User $actor, int $id): ?User
+    {
+        $staff = $this->staffVisibilityQuery($actor, true)->onlyTrashed()->find($id);
+        if ($staff === null) {
+            return null;
+        }
+
+        return DB::transaction(function () use ($actor, $staff): User {
+            $staff = User::withTrashed()->lockForUpdate()->findOrFail($staff->id);
+            $this->assertCanManageStaff($actor, $staff);
+            $staff->restore();
+            if ($staff->employment_status === StaffEmploymentStatus::Working) {
+                $this->ensureCurrentStaffAssignment($staff, $actor->id, 'Khôi phục tài khoản nhân viên');
+            }
+            $this->recordStaffEvent($staff, StaffLifecycleEvent::RESTORED, $actor->id, null, [], 'Khôi phục tài khoản nhân viên');
+
+            return $this->loadStaffDetail($staff->refresh());
+        });
     }
 
     /** @param array<string, mixed> $filters @return LengthAwarePaginator<int, Review> */
@@ -468,5 +679,389 @@ class AdminPortalRepository
             isset($filters['date_from']) ? CarbonImmutable::parse($filters['date_from'])->startOfDay() : null,
             isset($filters['date_to']) ? CarbonImmutable::parse($filters['date_to'])->endOfDay() : null,
         ];
+    }
+
+    private function staffVisibilityQuery(User $actor, bool $withTrashed = false): Builder
+    {
+        $query = User::query();
+        if ($withTrashed) {
+            $query->withTrashed();
+        }
+
+        return $query
+            ->where('role', '!=', UserRole::Customer->value)
+            ->when(
+                $actor->role === UserRole::BranchManager,
+                fn (Builder $query) => $query
+                    ->where('branch_id', $actor->branch_id ?? 0)
+                    ->where('role', '!=', UserRole::SuperAdmin->value),
+            );
+    }
+
+    /** @return array<int, string|Closure> */
+    private function staffDetailRelations(): array
+    {
+        return [
+            'branch:id,code,name',
+            'currentAssignment.branch:id,code,name',
+            'staffAssignments' => fn ($query) => $query->with('branch:id,code,name')->orderByDesc('effective_from')->orderByDesc('id'),
+            'staffLifecycleEvents' => fn ($query) => $query->with('actor:id,name')->latest('occurred_at')->latest('id'),
+        ];
+    }
+
+    private function loadStaffDetail(User $staff): User
+    {
+        return $staff->load($this->staffDetailRelations());
+    }
+
+    /** @return array{branch_id: int|null, role: string, job_title: string|null, employment_status: string} */
+    private function staffState(User $staff): array
+    {
+        return [
+            'branch_id' => $staff->branch_id,
+            'role' => $staff->role->value,
+            'job_title' => $staff->job_title,
+            'employment_status' => $staff->employment_status->value,
+        ];
+    }
+
+    /** @param array<string, mixed> $before @param array<string, mixed> $data */
+    private function assignmentScopeChanges(array $before, array $data): bool
+    {
+        return (array_key_exists('branch_id', $data) && $data['branch_id'] !== $before['branch_id'])
+            || (array_key_exists('role', $data) && (string) $data['role'] !== $before['role'])
+            || (array_key_exists('job_title', $data) && $data['job_title'] !== $before['job_title']);
+    }
+
+    /** @param array<string, mixed> $before */
+    private function synchronizeStaffHistoryAfterMutation(User $staff, array $before, ?int $actorId): void
+    {
+        $current = $this->currentStaffAssignment($staff);
+        $after = $this->staffState($staff);
+        $assignmentChanged = $before['branch_id'] !== $after['branch_id']
+            || $before['role'] !== $after['role']
+            || $before['job_title'] !== $after['job_title'];
+        $workArea = $before['role'] === $after['role']
+            ? ($current?->work_area ?? $this->defaultWorkArea($staff->role))
+            : $this->defaultWorkArea($staff->role);
+        $statusChanged = $before['employment_status'] !== $after['employment_status'];
+        $assignment = null;
+        $now = CarbonImmutable::now();
+
+        if ($staff->employment_status === StaffEmploymentStatus::Left) {
+            $this->closeCurrentStaffAssignment($staff, $now, $current);
+        } elseif ($assignmentChanged || $before['employment_status'] === StaffEmploymentStatus::Left->value) {
+            $this->closeCurrentStaffAssignment($staff, $now, $current);
+            $assignment = $this->createStaffAssignment($staff, $actorId, $now, $workArea, 'Cập nhật thông tin công tác');
+        } else {
+            $assignment = $this->ensureCurrentStaffAssignment($staff, $actorId);
+        }
+
+        if ($assignmentChanged) {
+            $beforeAssignment = [
+                'branch_id' => $before['branch_id'],
+                'role' => $before['role'],
+                'job_title' => $before['job_title'],
+                'work_area' => $workArea,
+            ];
+            $afterAssignment = [
+                'branch_id' => $after['branch_id'],
+                'role' => $after['role'],
+                'job_title' => $after['job_title'],
+                'work_area' => $workArea,
+            ];
+            $this->recordAssignmentEvents($staff, $actorId, $assignment?->id, $beforeAssignment, $afterAssignment, 'Cập nhật thông tin công tác');
+        }
+
+        if ($statusChanged) {
+            $from = StaffEmploymentStatus::from($before['employment_status']);
+            $to = $staff->employment_status;
+            $this->recordStaffEvent($staff, StaffLifecycleEvent::EMPLOYMENT_STATUS_CHANGED, $actorId, $assignment?->id, [
+                'from' => $from->value,
+                'to' => $to->value,
+            ], "Thay đổi trạng thái từ {$from->label()} sang {$to->label()}");
+        }
+    }
+
+    private function ensureCurrentStaffAssignment(User $staff, ?int $actorId, ?string $reason = null): ?StaffAssignment
+    {
+        if ($staff->employment_status !== StaffEmploymentStatus::Working) {
+            return null;
+        }
+
+        $current = $this->currentStaffAssignment($staff);
+        if ($current !== null) {
+            return $current;
+        }
+
+        return $this->createStaffAssignment(
+            $staff,
+            $actorId,
+            CarbonImmutable::now(),
+            $this->defaultWorkArea($staff->role),
+            $reason,
+        );
+    }
+
+    private function createStaffAssignment(
+        User $staff,
+        ?int $actorId,
+        mixed $effectiveFrom,
+        ?string $workArea,
+        ?string $reason,
+    ): StaffAssignment {
+        if ($staff->role === UserRole::Customer) {
+            throw ValidationException::withMessages([
+                'role' => ['Khách hàng không thể có phân công nhân viên'],
+            ]);
+        }
+        if ($staff->employment_status !== StaffEmploymentStatus::Working) {
+            throw ValidationException::withMessages([
+                'status' => ['Nhân viên đã nghỉ việc không thể nhận phân công đang hoạt động'],
+            ]);
+        }
+        if ($this->currentStaffAssignment($staff) !== null) {
+            throw ValidationException::withMessages([
+                'assignment' => ['Nhân viên đã có một phân công đang hoạt động'],
+            ]);
+        }
+        $this->assertSensibleAssignmentTarget($staff->role, $staff->branch_id, $workArea);
+
+        return $staff->staffAssignments()->create([
+            'branch_id' => $staff->branch_id,
+            'role' => $staff->role,
+            'job_title' => $staff->job_title,
+            'work_area' => $workArea,
+            'effective_from' => $effectiveFrom,
+            'effective_to' => null,
+            'reason' => $reason,
+            'created_by' => $actorId,
+        ]);
+    }
+
+    private function currentStaffAssignment(User $staff): ?StaffAssignment
+    {
+        $currentAssignments = $staff->staffAssignments()
+            ->whereNull('effective_to')
+            ->lockForUpdate()
+            ->get();
+        if ($currentAssignments->count() > 1) {
+            throw ValidationException::withMessages([
+                'assignment' => ['Dữ liệu phân công không hợp lệ: nhân viên có nhiều hơn một phân công đang hoạt động'],
+            ]);
+        }
+
+        return $currentAssignments->first();
+    }
+
+    private function closeCurrentStaffAssignment(
+        User $staff,
+        CarbonImmutable $effectiveTo,
+        ?StaffAssignment $current = null,
+    ): void {
+        $current ??= $this->currentStaffAssignment($staff);
+        if ($current === null) {
+            return;
+        }
+
+        $staff->staffAssignments()
+            ->whereKey($current->id)
+            ->whereNull('effective_to')
+            ->update(['effective_to' => $effectiveTo, 'updated_at' => now()]);
+    }
+
+    /** @param array<string, mixed> $metadata */
+    private function recordStaffEvent(
+        User $staff,
+        string $eventType,
+        ?int $actorId,
+        ?int $assignmentId,
+        array $metadata,
+        ?string $description,
+    ): StaffLifecycleEvent {
+        return $staff->staffLifecycleEvents()->create([
+            'assignment_id' => $assignmentId,
+            'actor_id' => $actorId,
+            'event_type' => $eventType,
+            'description' => $description,
+            'metadata' => $metadata === [] ? null : $metadata,
+            'occurred_at' => now(),
+        ]);
+    }
+
+    /** @param array<string, mixed> $before @param array<string, mixed> $after */
+    private function recordAssignmentEvents(
+        User $staff,
+        ?int $actorId,
+        ?int $assignmentId,
+        array $before,
+        array $after,
+        ?string $reason,
+    ): void {
+        $metadata = ['before' => $before, 'after' => $after, 'reason' => $reason];
+        $this->recordStaffEvent($staff, StaffLifecycleEvent::ASSIGNMENT_CHANGED, $actorId, $assignmentId, $metadata, 'Thay đổi phân công công tác');
+
+        foreach ([
+            'branch_id' => [StaffLifecycleEvent::BRANCH_TRANSFERRED, 'Chuyển chi nhánh công tác'],
+            'role' => [StaffLifecycleEvent::ROLE_CHANGED, 'Thay đổi vai trò hệ thống'],
+            'job_title' => [StaffLifecycleEvent::JOB_TITLE_CHANGED, 'Thay đổi chức danh công việc'],
+        ] as $field => [$eventType, $description]) {
+            if ($before[$field] !== $after[$field]) {
+                $this->recordStaffEvent($staff, $eventType, $actorId, $assignmentId, [
+                    'from' => $before[$field],
+                    'to' => $after[$field],
+                    'reason' => $reason,
+                ], $description);
+            }
+        }
+    }
+
+    /** @return array{can_transfer: bool, blockers: array<int, array{type: string, count: int, message: string, action: string}>} */
+    private function staffBlockers(User $staff): array
+    {
+        $appointments = Appointment::query()
+            ->where('technician_id', $staff->id)
+            ->whereIn('status', [
+                AppointmentStatus::Pending->value,
+                AppointmentStatus::Confirmed->value,
+                AppointmentStatus::InProgress->value,
+            ])
+            ->count();
+        $blockers = [];
+        if ($appointments > 0) {
+            $blockers[] = [
+                'type' => 'appointments',
+                'count' => $appointments,
+                'message' => "Nhân viên còn {$appointments} lịch hẹn đang hoạt động hoặc chưa hoàn tất",
+                'action' => 'reassign_appointments',
+            ];
+        }
+
+        $openPosSessions = PosSession::query()
+            ->where('cashier_id', $staff->id)
+            ->where('status', 'open')
+            ->where('expires_at', '>', now())
+            ->count();
+        if ($openPosSessions > 0) {
+            $blockers[] = [
+                'type' => 'pos_sessions',
+                'count' => $openPosSessions,
+                'message' => "Nhân viên còn {$openPosSessions} phiên POS đang mở và chưa hết hạn",
+                'action' => 'complete_pos_sessions',
+            ];
+        }
+
+        return ['can_transfer' => $blockers === [], 'blockers' => $blockers];
+    }
+
+    private function assertNoStaffBlockers(User $staff): void
+    {
+        $preflight = $this->staffBlockers($staff);
+        if (! $preflight['can_transfer']) {
+            throw ValidationException::withMessages([
+                'assignment' => [$preflight['blockers'][0]['message']],
+            ]);
+        }
+    }
+
+    /** @param array<string, mixed> $target */
+    private function assertCanChangeAssignment(User $actor, User $staff, array $target): void
+    {
+        $this->assertCanManageStaff($actor, $staff);
+        $role = isset($target['role']) ? UserRole::from((string) $target['role']) : $staff->role;
+        $branchId = array_key_exists('branch_id', $target) ? $target['branch_id'] : $staff->branch_id;
+        $workArea = array_key_exists('work_area', $target)
+            ? $target['work_area']
+            : ($role === $staff->role
+                ? $staff->staffAssignments()->whereNull('effective_to')->value('work_area')
+                : $this->defaultWorkArea($role));
+        $this->assertSensibleAssignmentTarget($role, $branchId, $workArea);
+
+        if ($actor->role === UserRole::BranchManager
+            && ($branchId !== $actor->branch_id || ! in_array($role, [UserRole::Cashier, UserRole::SalesStaff, UserRole::Technician], true))) {
+            throw ValidationException::withMessages([
+                'branch_id' => ['Quản lý chi nhánh chỉ có thể phân công nhân viên thông thường trong chi nhánh của mình'],
+            ]);
+        }
+    }
+
+    private function assertCanManageStaff(User $actor, User $staff): void
+    {
+        if ($actor->role === UserRole::SuperAdmin) {
+            return;
+        }
+
+        if ($actor->role === UserRole::BranchManager
+            && $staff->branch_id === $actor->branch_id
+            && in_array($staff->role, [UserRole::Cashier, UserRole::SalesStaff, UserRole::Technician], true)) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'staff' => ['Bạn không có quyền thực hiện thao tác này với nhân viên'],
+        ]);
+    }
+
+    private function assertSensibleAssignmentTarget(UserRole $role, mixed $branchId, mixed $workArea): void
+    {
+        if ($role === UserRole::SuperAdmin) {
+            if ($branchId !== null || $workArea !== 'system') {
+                throw ValidationException::withMessages([
+                    'assignment' => ['Super Admin phải thuộc khu vực system và không thuộc chi nhánh'],
+                ]);
+            }
+
+            return;
+        }
+
+        if ($branchId === null) {
+            throw ValidationException::withMessages(['branch_id' => ['Nhân viên phải được gán vào một chi nhánh']]);
+        }
+        $expectedWorkArea = $this->defaultWorkArea($role);
+        if ($workArea !== $expectedWorkArea) {
+            throw ValidationException::withMessages([
+                'work_area' => ["Vai trò {$role->label()} phải thuộc khu vực {$expectedWorkArea}"],
+            ]);
+        }
+    }
+
+    private function assertPreservesUsableSuperAdmin(
+        User $staff,
+        UserRole $targetRole,
+        StaffEmploymentStatus $targetStatus,
+        bool $deleting,
+    ): void {
+        $currentlyUsable = $staff->role === UserRole::SuperAdmin
+            && $staff->employment_status === StaffEmploymentStatus::Working
+            && ! $staff->trashed();
+        $willBeUsable = ! $deleting
+            && $targetRole === UserRole::SuperAdmin
+            && $targetStatus === StaffEmploymentStatus::Working;
+        if (! $currentlyUsable || $willBeUsable) {
+            return;
+        }
+
+        $otherUsableAdmins = User::query()
+            ->whereKeyNot($staff->id)
+            ->where('role', UserRole::SuperAdmin->value)
+            ->where('employment_status', StaffEmploymentStatus::Working->value)
+            ->lockForUpdate()
+            ->count();
+        if ($otherUsableAdmins === 0) {
+            throw ValidationException::withMessages([
+                'staff' => ['Không thể vô hiệu hóa Super Admin cuối cùng. Vui lòng tạo một Super Admin khác trước'],
+            ]);
+        }
+    }
+
+    private function defaultWorkArea(UserRole $role): ?string
+    {
+        return match ($role) {
+            UserRole::Technician => 'clinic',
+            UserRole::Cashier, UserRole::SalesStaff => 'retail',
+            UserRole::BranchManager => 'management',
+            UserRole::SuperAdmin => 'system',
+            default => null,
+        };
     }
 }

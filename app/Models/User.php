@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -19,8 +20,10 @@ use Laravel\Sanctum\HasApiTokens;
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
+    public const DELETED_AT = 'staff_deleted_at';
+
     /** @use HasFactory<UserFactory> */
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
     protected static function booted(): void
     {
@@ -64,6 +67,26 @@ class User extends Authenticatable
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);
+    }
+
+    /** @return HasMany<StaffAssignment, $this> */
+    public function staffAssignments(): HasMany
+    {
+        return $this->hasMany(StaffAssignment::class, 'staff_id');
+    }
+
+    /** @return HasOne<StaffAssignment, $this> */
+    public function currentAssignment(): HasOne
+    {
+        return $this->hasOne(StaffAssignment::class, 'staff_id')
+            ->whereNull('effective_to')
+            ->latestOfMany('effective_from');
+    }
+
+    /** @return HasMany<StaffLifecycleEvent, $this> */
+    public function staffLifecycleEvents(): HasMany
+    {
+        return $this->hasMany(StaffLifecycleEvent::class, 'staff_id');
     }
 
     /**

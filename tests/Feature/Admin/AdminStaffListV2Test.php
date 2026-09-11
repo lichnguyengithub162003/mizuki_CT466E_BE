@@ -83,6 +83,10 @@ test('super admin sees cross-branch staff and super admins with the complete lis
         'branch_id' => $secondBranch->id,
         'employment_status' => StaffEmploymentStatus::Left,
     ])->refresh();
+    $salesStaff = User::factory()->create([
+        'role' => UserRole::SalesStaff,
+        'branch_id' => $firstBranch->id,
+    ])->refresh();
     $admin = User::factory()->create(['role' => UserRole::SuperAdmin])->refresh();
 
     $response = $this->actingAs($admin)->getJson('/api/v1/admin/staff?per_page=100')->assertOk();
@@ -90,7 +94,25 @@ test('super admin sees cross-branch staff and super admins with the complete lis
     $technicianRow = staffListRow($rows, $technician->id);
     $cashierRow = staffListRow($rows, $cashier->id);
     $adminRow = staffListRow($rows, $admin->id);
+    $salesStaffRow = staffListRow($rows, $salesStaff->id);
 
+    expect(array_keys($technicianRow))->toBe([
+        'id',
+        'code',
+        'name',
+        'email',
+        'phone',
+        'avatar',
+        'avatar_rendition_url',
+        'role',
+        'role_label',
+        'job_title',
+        'branch',
+        'status',
+        'status_label',
+        'created_at',
+        'updated_at',
+    ]);
     expect($technicianRow)
         ->toMatchArray([
             'id' => $technician->id,
@@ -112,7 +134,10 @@ test('super admin sees cross-branch staff and super admins with the complete lis
         ->and($cashierRow['status'])->toBe(StaffEmploymentStatus::Left->value)
         ->and($cashierRow['status_label'])->toBe('Đã nghỉ việc')
         ->and($cashierRow['job_title'])->toBeNull()
+        ->and($cashierRow)->toHaveKeys(['avatar', 'avatar_rendition_url'])
         ->and($cashierRow['branch']['id'])->toBe($secondBranch->id)
+        ->and($salesStaffRow['role'])->toBe(UserRole::SalesStaff->value)
+        ->and($salesStaffRow['role_label'])->toBe('Nhân viên bán hàng')
         ->and($adminRow['role'])->toBe(UserRole::SuperAdmin->value)
         ->and($adminRow['role_label'])->toBe('Quản trị viên hệ thống')
         ->and($adminRow['branch'])->toBeNull()
@@ -136,6 +161,10 @@ test('branch manager scope cannot be escaped and excludes super admins', functio
         'role' => UserRole::Cashier,
         'branch_id' => $ownBranch->id,
     ]);
+    $ownSalesStaff = User::factory()->create([
+        'role' => UserRole::SalesStaff,
+        'branch_id' => $ownBranch->id,
+    ]);
     $ownManager = User::factory()->create([
         'role' => UserRole::BranchManager,
         'branch_id' => $ownBranch->id,
@@ -156,6 +185,7 @@ test('branch manager scope cannot be escaped and excludes super admins', functio
 
     expect($ids)->toContain($ownTechnician->id)
         ->toContain($ownCashier->id)
+        ->toContain($ownSalesStaff->id)
         ->toContain($ownManager->id)
         ->not->toContain($otherStaff->id)
         ->not->toContain($superAdmin->id);
@@ -167,6 +197,85 @@ test('branch manager scope cannot be escaped and excludes super admins', functio
     $this->patchJson("/api/v1/admin/staff/{$ownManager->id}", ['job_title' => 'Không được cập nhật'])
         ->assertUnprocessable();
     expect($ownManager->refresh()->job_title)->toBeNull();
+});
+
+test('branch manager legacy crud supports ordinary same branch roles without escaping scope', function (): void {
+    $ownBranch = createStaffListBranch('SLC');
+    $otherBranch = createStaffListBranch('SLD');
+    $manager = User::factory()->create([
+        'role' => UserRole::BranchManager,
+        'branch_id' => $ownBranch->id,
+    ]);
+    $this->actingAs($manager);
+
+    $salesResponse = $this->postJson('/api/v1/admin/staff', [
+        'name' => 'Nhân viên bán hàng mới',
+        'email' => 'branch.sales@mizuki.test',
+        'password' => 'password123',
+        'role' => UserRole::SalesStaff->value,
+        'branch_id' => $ownBranch->id,
+    ])->assertCreated()
+        ->assertJsonPath('data.role', UserRole::SalesStaff->value)
+        ->assertJsonPath('data.role_label', 'Nhân viên bán hàng')
+        ->assertJsonPath('data.branch.id', $ownBranch->id);
+    $salesStaffId = $salesResponse->json('data.id');
+
+    $this->patchJson("/api/v1/admin/staff/{$salesStaffId}", [
+        'job_title' => 'Tư vấn viên bán hàng',
+    ])->assertOk()
+        ->assertJsonPath('data.role', UserRole::SalesStaff->value)
+        ->assertJsonPath('data.job_title', 'Tư vấn viên bán hàng');
+
+    foreach ([UserRole::Cashier, UserRole::Technician] as $role) {
+        $this->postJson('/api/v1/admin/staff', [
+            'name' => "Nhân viên {$role->value}",
+            'email' => "branch.{$role->value}@mizuki.test",
+            'password' => 'password123',
+            'role' => $role->value,
+            'branch_id' => $ownBranch->id,
+        ])->assertCreated()
+            ->assertJsonPath('data.role', $role->value)
+            ->assertJsonPath('data.branch.id', $ownBranch->id);
+    }
+
+    $this->postJson('/api/v1/admin/staff', [
+        'name' => 'Nhân viên sai chi nhánh',
+        'email' => 'cross.branch.sales@mizuki.test',
+        'password' => 'password123',
+        'role' => UserRole::SalesStaff->value,
+        'branch_id' => $otherBranch->id,
+    ])->assertUnprocessable()
+        ->assertJsonStructure(['data' => ['errors' => ['branch_id']]]);
+    $this->assertDatabaseMissing('users', ['email' => 'cross.branch.sales@mizuki.test']);
+
+    $otherSalesStaff = User::factory()->create([
+        'role' => UserRole::SalesStaff,
+        'branch_id' => $otherBranch->id,
+    ]);
+    $this->patchJson("/api/v1/admin/staff/{$otherSalesStaff->id}", [
+        'job_title' => 'Không được cập nhật',
+    ])->assertNotFound();
+
+    foreach ([UserRole::BranchManager, UserRole::SuperAdmin] as $role) {
+        $this->postJson('/api/v1/admin/staff', [
+            'name' => "Tài khoản {$role->value}",
+            'email' => "forbidden.{$role->value}@mizuki.test",
+            'password' => 'password123',
+            'role' => $role->value,
+            'branch_id' => $ownBranch->id,
+        ])->assertUnprocessable()
+            ->assertJsonStructure(['data' => ['errors' => ['role']]]);
+
+        $this->patchJson("/api/v1/admin/staff/{$salesStaffId}", [
+            'role' => $role->value,
+        ])->assertUnprocessable()
+            ->assertJsonStructure(['data' => ['errors' => ['role']]]);
+    }
+
+    expect(User::query()->findOrFail($salesStaffId))
+        ->role->toBe(UserRole::SalesStaff)
+        ->branch_id->toBe($ownBranch->id)
+        ->job_title->toBe('Tư vấn viên bán hàng');
 });
 
 test('branch role and employment filters compose correctly for super admin', function (): void {
@@ -193,6 +302,14 @@ test('branch role and employment filters compose correctly for super admin', fun
         'branch_id' => $secondBranch->id,
         'employment_status' => StaffEmploymentStatus::Left,
     ]);
+    $manager = User::factory()->create([
+        'role' => UserRole::BranchManager,
+        'branch_id' => $firstBranch->id,
+    ]);
+    $salesStaff = User::factory()->create([
+        'role' => UserRole::SalesStaff,
+        'branch_id' => $firstBranch->id,
+    ]);
     $admin = User::factory()->create(['role' => UserRole::SuperAdmin]);
 
     $response = $this->actingAs($admin)->getJson('/api/v1/admin/staff?'.http_build_query([
@@ -207,6 +324,20 @@ test('branch role and employment filters compose correctly for super admin', fun
         ->not->toContain($working->id)
         ->not->toContain($wrongRole->id)
         ->not->toContain($wrongBranch->id);
+
+    $expectedStaffByRole = [
+        UserRole::Technician->value => $wrongRole->id,
+        UserRole::Cashier->value => $matching->id,
+        UserRole::SalesStaff->value => $salesStaff->id,
+        UserRole::BranchManager->value => $manager->id,
+        UserRole::SuperAdmin->value => $admin->id,
+    ];
+    foreach ($expectedStaffByRole as $role => $expectedStaffId) {
+        $roleResponse = $this->getJson("/api/v1/admin/staff?role={$role}&per_page=100")->assertOk();
+        $roleRows = collect($roleResponse->json('data'));
+        expect($roleRows->pluck('id'))->toContain($expectedStaffId)
+            ->and($roleRows->every(fn (array $row): bool => $row['role'] === $role))->toBeTrue();
+    }
 
     foreach ([StaffEmploymentStatus::Working, StaffEmploymentStatus::Left] as $status) {
         $statusResponse = $this->getJson("/api/v1/admin/staff?status={$status->value}&per_page=100")->assertOk();
@@ -262,7 +393,7 @@ test('staff employment status and job title can be persisted through the existin
         'email' => 'new.staff@mizuki.test',
         'phone' => '0901999999',
         'password' => 'password123',
-        'role' => UserRole::Cashier->value,
+        'role' => UserRole::SalesStaff->value,
         'branch_id' => $branch->id,
         'job_title' => '  Nhân viên bán hàng  ',
         'status' => StaffEmploymentStatus::Left->value,
@@ -270,6 +401,8 @@ test('staff employment status and job title can be persisted through the existin
 
     $id = $response->json('data.id');
     $response->assertJsonPath('data.code', 'NV-'.str_pad((string) $id, 5, '0', STR_PAD_LEFT))
+        ->assertJsonPath('data.role', UserRole::SalesStaff->value)
+        ->assertJsonPath('data.role_label', 'Nhân viên bán hàng')
         ->assertJsonPath('data.job_title', 'Nhân viên bán hàng')
         ->assertJsonPath('data.status', StaffEmploymentStatus::Left->value)
         ->assertJsonPath('data.status_label', 'Đã nghỉ việc');

@@ -25,6 +25,12 @@ class StaffMutationRequest extends FormRequest
     /** @return array<string, mixed> */
     public function rules(): array
     {
+        if ($this->routeIs('api.v1.admin.staff.employment-status')) {
+            return [
+                'status' => ['required', Rule::enum(StaffEmploymentStatus::class)],
+            ];
+        }
+
         $creating = $this->isMethod('post');
         $id = $this->route('staff');
 
