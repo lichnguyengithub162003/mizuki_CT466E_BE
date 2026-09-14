@@ -210,7 +210,15 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
             Route::patch('branches/{branch}', [AdminBranchController::class, 'update'])
                 ->whereNumber('branch')->name('branches.update');
 
-            Route::apiResource('staff', AdminStaffController::class)->except('destroy');
+            Route::post('staff/{staff}/assignment/preflight', [AdminStaffController::class, 'assignmentPreflight'])
+                ->whereNumber('staff')->name('staff.assignment.preflight');
+            Route::post('staff/{staff}/assignment', [AdminStaffController::class, 'changeAssignment'])
+                ->whereNumber('staff')->name('staff.assignment.change');
+            Route::patch('staff/{staff}/employment-status', [AdminStaffController::class, 'changeEmploymentStatus'])
+                ->whereNumber('staff')->name('staff.employment-status');
+            Route::post('staff/{staff}/restore', [AdminStaffController::class, 'restore'])
+                ->whereNumber('staff')->name('staff.restore');
+            Route::apiResource('staff', AdminStaffController::class);
 
             Route::get('reviews', [AdminReviewController::class, 'index'])->name('reviews.index');
             Route::get('reviews/{review}', [AdminReviewController::class, 'show'])

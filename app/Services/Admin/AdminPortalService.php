@@ -236,8 +236,11 @@ class AdminPortalService extends BaseService
         $branchId = isset($data['branch_id']) ? (int) $data['branch_id'] : null;
 
         if ($actor->role === UserRole::BranchManager) {
-            if (! in_array($role, [UserRole::Cashier, UserRole::Technician], true)) {
-                throw ValidationException::withMessages(['role' => ['Quản lý chi nhánh chỉ có thể quản lý thu ngân và kỹ thuật viên']]);
+            if (! in_array($role, [UserRole::Cashier, UserRole::SalesStaff, UserRole::Technician], true)) {
+                throw ValidationException::withMessages(['role' => ['Quản lý chi nhánh chỉ có thể quản lý nhân viên thông thường']]);
+            }
+            if ($branchId !== null && $branchId !== $actor->branch_id) {
+                throw ValidationException::withMessages(['branch_id' => ['Quản lý chi nhánh chỉ có thể quản lý nhân viên trong chi nhánh của mình']]);
             }
             $data['branch_id'] = $actor->branch_id;
             $branchId = $actor->branch_id;
