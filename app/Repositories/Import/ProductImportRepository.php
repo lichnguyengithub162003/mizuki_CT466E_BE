@@ -11,16 +11,19 @@ use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Services\Import\ProductImageImportService;
+use App\Support\Import\ProductVariantNormalizationRetirement;
 use Closure;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
 class ProductImportRepository
 {
     public function __construct(
         private readonly ProductQuestionImportRepository $questions,
         private readonly ProductReviewImportRepository $reviews,
+        private readonly ProductVariantNormalizationRetirement $normalizationRetirement,
     ) {}
 
     public function disableQueryLog(): void
@@ -165,14 +168,21 @@ class ProductImportRepository
         foreach ($records as $record) {
             $brand = $brands[(string) $record['brand']['slug']];
             $category = $categories[(string) $record['category_slug']];
-            $product = $this->persistProduct(
+            $productResolution = $this->persistProduct(
                 $record,
                 $brand,
                 $category,
                 $counters['products'],
             );
+            $product = $productResolution['product'];
             $variant = $this->persistVariant($record, $product, $counters['variants']);
-            $this->persistImages($record, $product, $counters['images']);
+            $this->persistImages(
+                $record,
+                $product,
+                $variant,
+                $productResolution['normalization_redirected'],
+                $counters['images'],
+            );
             $this->questions->synchronize(
                 $product,
                 $record['questions'],
@@ -184,6 +194,7 @@ class ProductImportRepository
                 $record['reviews'],
                 $record['review_import_stats'],
                 $counters['reviews'],
+                $productResolution['normalization_redirected'],
             );
 
             if (count($samples) < 5) {
@@ -212,7 +223,6 @@ class ProductImportRepository
         $brands = $this->uniqueByNestedKey($records, 'brand', 'slug');
         $categories = $this->uniqueCategories($records);
         $products = $this->uniqueByNestedKey($records, 'product', 'slug');
-        $variants = $this->uniqueByNestedKey($records, 'variant', 'sku');
 
         $existingBrands = Brand::query()
             ->withTrashed()
@@ -229,11 +239,7 @@ class ProductImportRepository
             ->whereIn('slug', array_keys($products))
             ->get()
             ->keyBy('slug');
-        $existingVariants = ProductVariant::query()
-            ->withTrashed()
-            ->whereIn('sku', array_keys($variants))
-            ->get()
-            ->keyBy('sku');
+        $existingVariants = $this->existingVariantsFor($records);
 
         $plans = [
             'brands' => $this->planModels($brands, $existingBrands),
@@ -331,13 +337,14 @@ class ProductImportRepository
     /**
      * @param  array<string, mixed>  $record
      * @param  array{created: int, updated: int, restored: int, unchanged: int}  $counters
+     * @return array{product: Product, normalization_redirected: bool}
      */
     private function persistProduct(
         array $record,
         Brand $brand,
         Category $category,
         array &$counters,
-    ): Product {
+    ): array {
         $product = Product::query()->withTrashed()
             ->where(function ($query) use ($record): void {
                 $query->where(function ($identity) use ($record): void {
@@ -356,7 +363,22 @@ class ProductImportRepository
             $product = Product::query()->create($attributes);
             $counters['created']++;
 
-            return $product;
+            return ['product' => $product, 'normalization_redirected' => false];
+        }
+
+        $normalizationMarker = $this->normalizationRetirement->marker($product);
+        if ($product->trashed() && $normalizationMarker !== null) {
+            $canonical = Product::query()->withTrashed()
+                ->whereKey($normalizationMarker['canonical_product_id'])
+                ->lockForUpdate()
+                ->first();
+            if ($canonical === null || $canonical->trashed()) {
+                throw new RuntimeException('Normalized product redirect points to a missing or retired canonical product.');
+            }
+
+            $counters['unchanged']++;
+
+            return ['product' => $canonical, 'normalization_redirected' => true];
         }
 
         $restored = $product->trashed();
@@ -365,7 +387,7 @@ class ProductImportRepository
         if (! $restored && $this->matches($product, $attributes)) {
             $counters['unchanged']++;
 
-            return $product;
+            return ['product' => $product, 'normalization_redirected' => false];
         }
 
         $product->fill($attributes);
@@ -381,7 +403,7 @@ class ProductImportRepository
             $counters['unchanged']++;
         }
 
-        return $product;
+        return ['product' => $product, 'normalization_redirected' => false];
     }
 
     /**
@@ -393,9 +415,27 @@ class ProductImportRepository
         Product $product,
         array &$counters,
     ): ProductVariant {
-        $variant = ProductVariant::query()->withTrashed()
-            ->where('sku', $record['synthetic_sku'])->lockForUpdate()->first();
-        $attributes = $record['variant'] + ['product_id' => $product->id];
+        $matches = ProductVariant::query()
+            ->withTrashed()
+            ->where(function ($query) use ($record): void {
+                $query->where(function ($identity) use ($record): void {
+                    $identity->where('source', $record['variant']['source'])
+                        ->where('external_id', $record['variant']['external_id']);
+                })->orWhere('sku', $record['synthetic_sku']);
+            })
+            ->lockForUpdate()
+            ->get();
+
+        if ($matches->count() > 1) {
+            throw new RuntimeException(
+                'Variant source identity and SKU resolve to different database records.',
+            );
+        }
+
+        $variant = $matches->first();
+        $attributes = $record['variant'] + [
+            'product_id' => $variant?->product_id ?? $product->id,
+        ];
 
         if ($variant === null) {
             $variant = ProductVariant::query()->create($attributes);
@@ -436,11 +476,21 @@ class ProductImportRepository
      * @param  array<string, mixed>  $record
      * @param  array{created: int, updated: int, unchanged: int, stale_skipped: int}  $counters
      */
-    private function persistImages(array $record, Product $product, array &$counters): void
-    {
+    private function persistImages(
+        array $record,
+        Product $product,
+        ProductVariant $variant,
+        bool $normalizationRedirected,
+        array &$counters,
+    ): void {
+        $variantScoped = $normalizationRedirected || ProductImage::query()
+            ->where('product_variant_id', $variant->id)
+            ->exists();
+        $imageProductId = $variantScoped ? (int) $variant->product_id : (int) $product->id;
+        $imageVariantId = $variantScoped ? (int) $variant->id : null;
         $existing = ProductImage::query()
-            ->where('product_id', $product->id)
-            ->whereNull('product_variant_id')
+            ->where('product_id', $imageProductId)
+            ->where('product_variant_id', $imageVariantId)
             ->lockForUpdate()
             ->orderBy('sort_order')
             ->orderBy('id')
@@ -479,15 +529,18 @@ class ProductImportRepository
 
             if ($image === null) {
                 ProductImage::query()->create($attributes + [
-                    'product_id' => $product->id,
-                    'product_variant_id' => null,
+                    'product_id' => $imageProductId,
+                    'product_variant_id' => $imageVariantId,
                 ]);
                 $counters['created']++;
 
                 continue;
             }
 
-            $image->fill($attributes + ['product_variant_id' => null]);
+            $image->fill($attributes + [
+                'product_id' => $imageProductId,
+                'product_variant_id' => $imageVariantId,
+            ]);
 
             if ($image->isDirty()) {
                 $image->save();
@@ -514,7 +567,13 @@ class ProductImportRepository
             $counters['stale_skipped']++;
         }
 
-        $this->normalizeProductImages($product, $preferredPrimaryUrl, $counters);
+        $this->normalizeProductImages(
+            productId: $imageProductId,
+            productName: (string) $product->name,
+            preferredPrimaryUrl: $preferredPrimaryUrl,
+            counters: $counters,
+            variantId: $imageVariantId,
+        );
     }
 
     /**
@@ -522,11 +581,16 @@ class ProductImportRepository
      *
      * @param  array{created: int, updated: int, unchanged: int, stale_skipped: int}  $counters
      */
-    private function normalizeProductImages(Product $product, string $preferredPrimaryUrl, array &$counters): void
-    {
+    private function normalizeProductImages(
+        int $productId,
+        string $productName,
+        string $preferredPrimaryUrl,
+        array &$counters,
+        ?int $variantId = null,
+    ): void {
         $images = ProductImage::query()
-            ->where('product_id', $product->id)
-            ->whereNull('product_variant_id')
+            ->where('product_id', $productId)
+            ->where('product_variant_id', $variantId)
             ->lockForUpdate()
             ->orderBy('sort_order')
             ->orderBy('id')
@@ -558,10 +622,10 @@ class ProductImportRepository
             $images = $realImages;
         } elseif ($images->isEmpty()) {
             $images = collect([ProductImage::query()->create([
-                'product_id' => $product->id,
-                'product_variant_id' => null,
+                'product_id' => $productId,
+                'product_variant_id' => $variantId,
                 'image_url' => ProductImageImportService::FALLBACK_URL,
-                'alt_text' => $product->name,
+                'alt_text' => $productName,
                 'sort_order' => 0,
                 'is_primary' => true,
             ])]);
@@ -763,8 +827,11 @@ class ProductImportRepository
                 ARRAY_FILTER_USE_BOTH,
             );
             $product = $existingProducts->get($record['product_slug']);
+            $existingVariant = $existingVariants->get($record['synthetic_sku']);
 
-            if ($product !== null) {
+            if ($existingVariant !== null) {
+                $attributes['product_id'] = $existingVariant->product_id;
+            } elseif ($product !== null) {
                 $attributes['product_id'] = $product->id;
             }
 
@@ -772,6 +839,64 @@ class ProductImportRepository
         }
 
         return $this->planModels($desired, $existingVariants);
+    }
+
+    /**
+     * Resolve imported variants by authoritative source identity with SKU as a transition fallback.
+     *
+     * @param  list<array<string, mixed>>  $records
+     * @return Collection<string, ProductVariant>
+     */
+    private function existingVariantsFor(array $records): Collection
+    {
+        if ($records === []) {
+            return collect();
+        }
+
+        $identitiesBySource = [];
+        $skus = [];
+
+        foreach ($records as $record) {
+            $identitiesBySource[$record['variant']['source']][] = $record['variant']['external_id'];
+            $skus[] = $record['synthetic_sku'];
+        }
+
+        $matches = ProductVariant::query()
+            ->withTrashed()
+            ->where(function ($query) use ($identitiesBySource, $skus): void {
+                $query->whereIn('sku', array_values(array_unique($skus)));
+
+                foreach ($identitiesBySource as $source => $externalIds) {
+                    $query->orWhere(function ($identity) use ($source, $externalIds): void {
+                        $identity->where('source', $source)
+                            ->whereIn('external_id', array_values(array_unique($externalIds)));
+                    });
+                }
+            })
+            ->get();
+        $resolved = collect();
+
+        foreach ($records as $record) {
+            $identityMatch = $matches->first(
+                fn (ProductVariant $variant): bool => $variant->source === $record['variant']['source']
+                    && $variant->external_id === $record['variant']['external_id'],
+            );
+            $skuMatch = $matches->firstWhere('sku', $record['synthetic_sku']);
+
+            if ($identityMatch !== null && $skuMatch !== null && ! $identityMatch->is($skuMatch)) {
+                throw new RuntimeException(
+                    'Variant source identity and SKU resolve to different database records.',
+                );
+            }
+
+            $match = $identityMatch ?? $skuMatch;
+
+            if ($match !== null) {
+                $resolved->put($record['synthetic_sku'], $match);
+            }
+        }
+
+        return $resolved;
     }
 
     /**

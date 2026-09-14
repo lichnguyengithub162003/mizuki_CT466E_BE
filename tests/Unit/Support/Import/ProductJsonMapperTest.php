@@ -54,7 +54,10 @@ test('mapper creates deterministic product and synthetic variant identities', fu
         ->and($mapped['product_slug'])->toBe('serum-phuc-hoi-da-00123')
         ->and($mapped['product_slug'])->not->toStartWith('hasaki-product-')
         ->and($mapped['synthetic_sku'])->toBe('HS-00123')
-        ->and($mapped['variant']['sku'])->toBe('HS-00123');
+        ->and($mapped['variant']['sku'])->toBe('HS-00123')
+        ->and($mapped['variant']['source'])->toBe('hasaki')
+        ->and($mapped['variant']['external_id'])->toBe('00123')
+        ->and($mapped['variant']['source_url'])->toBe('https://example.test/products/00123');
 });
 
 test('a name change updates the customer slug while preserving the external identity suffix', function (): void {

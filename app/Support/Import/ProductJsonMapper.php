@@ -126,6 +126,9 @@ class ProductJsonMapper
                 'external_review_count' => $externalReviewCount ?? 0,
             ],
             'variant' => [
+                'source' => 'hasaki',
+                'external_id' => $sourceId,
+                'source_url' => $this->nullableString($record['url'] ?? null),
                 'name' => $attributes === [] ? $name : implode(' / ', array_values($attributes)),
                 'sku' => $sku,
                 'barcode' => $barcode,

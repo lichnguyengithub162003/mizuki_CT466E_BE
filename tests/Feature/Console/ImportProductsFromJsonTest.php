@@ -371,6 +371,9 @@ test('force performs a real-source controlled write in the isolated test databas
 
     expect($product->id)->toBeGreaterThan(0)
         ->and($variant->product_id)->toBe($product->id)
+        ->and($variant->source)->toBe('hasaki')
+        ->and($variant->external_id)->toBe('96589')
+        ->and($variant->source_url)->toBe($product->source_url)
         ->and($variant->weight)->toBe(500)
         ->and(ProductVariant::query()->count())->toBe(1)
         ->and(BranchInventory::query()->count())->toBe(0);
@@ -446,6 +449,41 @@ test('write mode is idempotent and preserves product and variant IDs', function 
         ->and(ProductImage::query()->count())->toBe(2)
         ->and(Product::query()->value('id'))->toBe($productId)
         ->and(ProductVariant::query()->value('id'))->toBe($variantId);
+});
+
+test('importer resolves an existing variant by authoritative source identity before SKU', function (): void {
+    $json = json_encode([productJsonImportRecord()], JSON_THROW_ON_ERROR);
+    $service = app(ProductJsonImportService::class);
+    $service->importJson($json, 0, 1, 500);
+    $variant = ProductVariant::query()->firstOrFail();
+    $variantId = $variant->id;
+    $sourceProduct = $variant->product;
+    $canonicalProduct = Product::query()->create([
+        'brand_id' => $sourceProduct->brand_id,
+        'category_id' => $sourceProduct->category_id,
+        'name' => 'Future Canonical Product',
+        'slug' => 'future-canonical-product',
+        'is_active' => true,
+        'is_featured' => false,
+    ]);
+    $variant->update([
+        'product_id' => $canonicalProduct->id,
+        'sku' => 'LEGACY-TRANSITION-SKU',
+    ]);
+
+    $analysis = $service->analyzeJson($json)->toArray();
+    $result = $service->importJson($json, 0, 1, 500)->toArray();
+    $variant->refresh();
+
+    expect($analysis['plans']['variants']['create'])->toBe(0)
+        ->and($analysis['plans']['variants']['update'])->toBe(1)
+        ->and($result['write_counters']['variants']['updated'])->toBe(1)
+        ->and(ProductVariant::query()->count())->toBe(1)
+        ->and($variant->id)->toBe($variantId)
+        ->and($variant->product_id)->toBe($canonicalProduct->id)
+        ->and($variant->sku)->toBe('HS-1001')
+        ->and($variant->source)->toBe('hasaki')
+        ->and($variant->external_id)->toBe('1001');
 });
 
 test('changed source data updates deterministic product and variant without duplication', function (): void {

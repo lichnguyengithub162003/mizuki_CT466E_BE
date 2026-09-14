@@ -19,6 +19,7 @@ class ProductReviewImportRepository
         array $reviews,
         array $mappingStats,
         array &$counters,
+        bool $normalizationRedirected = false,
     ): void {
         $counters['skipped'] += $mappingStats['skipped'];
         $counters['duplicate_collapsed'] += $mappingStats['duplicate_collapsed'];
@@ -27,6 +28,19 @@ class ProductReviewImportRepository
             ->withTrashed()
             ->where('product_id', $product->id)
             ->where('source', 'hasaki')
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('source_key');
+        $incomingSourceKeys = collect($reviews)
+            ->pluck('source_key')
+            ->filter(static fn (mixed $key): bool => is_string($key) && $key !== '')
+            ->unique()
+            ->values();
+        $reconciledElsewhere = Review::query()
+            ->withTrashed()
+            ->where('source', 'hasaki')
+            ->whereIn('source_key', $incomingSourceKeys)
+            ->where('product_id', '!=', $product->id)
             ->lockForUpdate()
             ->get()
             ->keyBy('source_key');
@@ -47,6 +61,13 @@ class ProductReviewImportRepository
             $review = $existing->get($sourceKey);
 
             if ($review === null) {
+                // Preserve reconciliation tombstones instead of recreating a globally unique source review.
+                if ($reconciledElsewhere->has($sourceKey)) {
+                    $counters['skipped']++;
+
+                    continue;
+                }
+
                 $review = new Review;
                 $review->fill($attributes);
 
@@ -80,7 +101,7 @@ class ProductReviewImportRepository
             }
         }
 
-        $stale = $existing->reject(
+        $stale = $normalizationRedirected ? collect() : $existing->reject(
             static fn (Review $review, string $key): bool => in_array($key, $incomingKeys, true),
         );
 

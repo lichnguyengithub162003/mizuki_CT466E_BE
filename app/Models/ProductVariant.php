@@ -10,6 +10,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 #[Fillable([
     'product_id',
+    'source',
+    'external_id',
+    'source_url',
     'name',
     'sku',
     'barcode',
