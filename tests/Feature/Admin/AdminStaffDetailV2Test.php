@@ -229,6 +229,7 @@ test('same-branch role and job title change creates a new assignment period', fu
 
 test('sales staff role transitions keep role work area and assignment synchronized', function (): void {
     $firstBranch = createStaffDetailBranch('SDS');
+    createStaffDetailMember(UserRole::BranchManager, $firstBranch);
     $secondBranch = createStaffDetailBranch('SDW');
     $technician = createStaffDetailMember(UserRole::Technician, $firstBranch);
     $manager = createStaffDetailMember(UserRole::BranchManager, $firstBranch);
@@ -375,6 +376,7 @@ test('branch manager cannot transfer staff outside own branch', function (): voi
 
 test('role change updates authorization scope immediately', function (): void {
     $branch = createStaffDetailBranch('SDU');
+    createStaffDetailMember(UserRole::BranchManager, $branch);
     $manager = createStaffDetailMember(UserRole::BranchManager, $branch);
     $admin = createStaffDetailMember(UserRole::SuperAdmin, null);
 
@@ -563,6 +565,69 @@ test('system preserves a final usable super admin and permits transitions while 
         ->and($demotedAdmin->refresh()->role)->toBe(UserRole::SalesStaff)
         ->and($deactivatedAdmin->refresh()->employment_status)->toBe(StaffEmploymentStatus::Left)
         ->and($trashedAdmin->refresh()->trashed())->toBeTrue();
+});
+
+test('active branch preserves its last usable manager across all staff mutation paths', function (string $operation, string $replacement): void {
+    $branch = createStaffDetailBranch('BMG');
+    $destination = createStaffDetailBranch('BMD');
+    $manager = createStaffDetailMember(UserRole::BranchManager, $branch);
+    $admin = createStaffDetailMember(UserRole::SuperAdmin, null);
+    if ($replacement !== 'none') {
+        $other = createStaffDetailMember(UserRole::BranchManager, $replacement === 'other_branch' ? $destination : $branch, [
+            'employment_status' => $replacement === 'left' ? StaffEmploymentStatus::Left : StaffEmploymentStatus::Working,
+        ]);
+        if ($replacement === 'trashed') {
+            $other->delete();
+        }
+    }
+    $assignmentCount = $manager->staffAssignments()->count();
+    $eventCount = $manager->staffLifecycleEvents()->count();
+    $this->actingAs($admin);
+    $url = "/api/v1/admin/staff/{$manager->id}";
+    $response = match ($operation) {
+        'left' => $this->patchJson($url.'/employment-status', ['status' => 'left']),
+        'trash' => $this->deleteJson($url),
+        'role' => $this->postJson($url.'/assignment', ['role' => 'cashier', 'work_area' => 'retail']),
+        'transfer' => $this->postJson($url.'/assignment', ['branch_id' => $destination->id]),
+        'generic_left' => $this->patchJson($url, ['status' => 'left']),
+        'generic_role' => $this->patchJson($url, ['role' => 'cashier']),
+        'generic_transfer' => $this->patchJson($url, ['branch_id' => $destination->id]),
+    };
+
+    if ($replacement === 'working') {
+        $response->assertOk();
+        $manager->refresh();
+        match ($operation) {
+            'left', 'generic_left' => expect($manager->employment_status)->toBe(StaffEmploymentStatus::Left),
+            'trash' => expect($manager->trashed())->toBeTrue(),
+            'role', 'generic_role' => expect($manager->role)->toBe(UserRole::Cashier),
+            'transfer', 'generic_transfer' => expect($manager->branch_id)->toBe($destination->id),
+        };
+    } else {
+        $response->assertUnprocessable()->assertJsonPath('data.errors.staff.0',
+            'Chi nhánh phải có ít nhất một quản lý đang làm việc. Vui lòng bổ nhiệm người thay thế trước.');
+        expect($manager->refresh()->role)->toBe(UserRole::BranchManager)
+            ->and($manager->employment_status)->toBe(StaffEmploymentStatus::Working)
+            ->and($manager->branch_id)->toBe($branch->id)
+            ->and($manager->trashed())->toBeFalse()
+            ->and($manager->staffAssignments()->count())->toBe($assignmentCount)
+            ->and($manager->staffAssignments()->whereNull('effective_to')->count())->toBe(1)
+            ->and($manager->staffLifecycleEvents()->count())->toBe($eventCount);
+    }
+})->with(['left', 'trash', 'role', 'transfer', 'generic_left', 'generic_role', 'generic_transfer'])
+    ->with(['none', 'working', 'left', 'trashed', 'other_branch']);
+
+test('last manager guard allows harmless updates and does not apply to inactive branches', function (): void {
+    $branch = createStaffDetailBranch('BMI');
+    $manager = createStaffDetailMember(UserRole::BranchManager, $branch);
+    $admin = createStaffDetailMember(UserRole::SuperAdmin, null);
+    $this->actingAs($admin)->patchJson("/api/v1/admin/staff/{$manager->id}", [
+        'job_title' => 'Quản lý vận hành',
+    ])->assertOk();
+    $branch->update(['is_active' => false]);
+    $this->patchJson("/api/v1/admin/staff/{$manager->id}/employment-status", [
+        'status' => 'left',
+    ])->assertOk();
 });
 
 test('assignment migration backfills one current assignment for staff and none for customers', function (): void {

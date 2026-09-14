@@ -414,6 +414,7 @@ class AdminPortalRepository
 
             if (! $creating) {
                 $this->assertPreservesUsableSuperAdmin($staff, $targetRole, $targetStatus, false);
+                $this->assertPreservesUsableBranchManager($staff, $targetRole, $targetStatus, $targetBranchId, false);
                 if ($this->assignmentScopeChanges($before, $data)
                     || ($staff->employment_status === StaffEmploymentStatus::Working && $targetStatus === StaffEmploymentStatus::Left)) {
                     $this->assertNoStaffBlockers($staff);
@@ -498,6 +499,7 @@ class AdminPortalRepository
             }
 
             $this->assertPreservesUsableSuperAdmin($staff, $target['role'], $staff->employment_status, false);
+            $this->assertPreservesUsableBranchManager($staff, $target['role'], $staff->employment_status, $target['branch_id'], false);
             $this->assertNoStaffBlockers($staff);
             $effectiveFrom = isset($data['effective_from']) ? CarbonImmutable::parse($data['effective_from']) : CarbonImmutable::now();
             if ($current !== null && $effectiveFrom->lt($current->effective_from)) {
@@ -543,6 +545,7 @@ class AdminPortalRepository
             }
 
             $this->assertPreservesUsableSuperAdmin($staff, $staff->role, $target, false);
+            $this->assertPreservesUsableBranchManager($staff, $staff->role, $target, $staff->branch_id, false);
             if ($target === StaffEmploymentStatus::Left) {
                 $this->assertNoStaffBlockers($staff);
             }
@@ -574,6 +577,7 @@ class AdminPortalRepository
             $staff = User::query()->lockForUpdate()->findOrFail($id);
             $this->assertCanManageStaff($actor, $staff);
             $this->assertPreservesUsableSuperAdmin($staff, $staff->role, $staff->employment_status, true);
+            $this->assertPreservesUsableBranchManager($staff, $staff->role, $staff->employment_status, $staff->branch_id, true);
             $this->assertNoStaffBlockers($staff);
             $this->closeCurrentStaffAssignment($staff, CarbonImmutable::now());
             $this->recordStaffEvent($staff, StaffLifecycleEvent::TRASHED, $actor->id, null, [], 'Chuyển nhân viên vào thùng rác');
@@ -1050,6 +1054,46 @@ class AdminPortalRepository
         if ($otherUsableAdmins === 0) {
             throw ValidationException::withMessages([
                 'staff' => ['Không thể vô hiệu hóa Super Admin cuối cùng. Vui lòng tạo một Super Admin khác trước'],
+            ]);
+        }
+    }
+
+    private function assertPreservesUsableBranchManager(
+        User $staff,
+        UserRole $targetRole,
+        StaffEmploymentStatus $targetStatus,
+        ?int $targetBranchId,
+        bool $deleting,
+    ): void {
+        $currentlyUsable = $staff->role === UserRole::BranchManager
+            && $staff->employment_status === StaffEmploymentStatus::Working
+            && ! $staff->trashed()
+            && $staff->branch_id !== null;
+        $willRemainUsable = ! $deleting
+            && $targetRole === UserRole::BranchManager
+            && $targetStatus === StaffEmploymentStatus::Working
+            && $targetBranchId === $staff->branch_id;
+        if (! $currentlyUsable || $willRemainUsable) {
+            return;
+        }
+
+        // Serialize removal checks for the source branch within the caller's transaction.
+        $branch = Branch::query()->lockForUpdate()->find($staff->branch_id);
+        if ($branch === null || ! $branch->is_active) {
+            return;
+        }
+
+        $replacement = User::query()
+            ->whereKeyNot($staff->id)
+            ->where('branch_id', $staff->branch_id)
+            ->where('role', UserRole::BranchManager->value)
+            ->where('employment_status', StaffEmploymentStatus::Working->value)
+            ->whereNull('staff_deleted_at')
+            ->lockForUpdate()
+            ->first();
+        if ($replacement === null) {
+            throw ValidationException::withMessages([
+                'staff' => ['Chi nhánh phải có ít nhất một quản lý đang làm việc. Vui lòng bổ nhiệm người thay thế trước.'],
             ]);
         }
     }
