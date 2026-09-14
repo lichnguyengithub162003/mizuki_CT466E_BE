@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Enums\BranchStatus;
 use App\Enums\BranchType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -25,6 +26,7 @@ class BranchUpdateRequest extends FormRequest
             'province_code' => ['sometimes', 'string', 'max:20'],
             'ghn_district_id' => ['sometimes', 'integer', 'min:1'],
             'ghn_ward_code' => ['sometimes', 'string', 'max:20'],
+            'status' => ['sometimes', Rule::enum(BranchStatus::class)],
             'is_active' => ['sometimes', 'boolean'],
             'business_hours' => ['sometimes', 'array', 'max:7'],
             'business_hours.*.weekday' => ['required', 'integer', 'between:0,6', 'distinct'],

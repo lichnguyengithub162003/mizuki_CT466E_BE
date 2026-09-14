@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\BranchStatus;
 use App\Enums\BranchType;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
@@ -19,11 +20,30 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'province_code',
     'ghn_district_id',
     'ghn_ward_code',
+    'status',
     'is_active',
 ])]
 class Branch extends Model
 {
     use SoftDeletes;
+
+    protected static function booted(): void
+    {
+        static::saving(function (Branch $branch): void {
+            if ($branch->isDirty('status')) {
+                $status = $branch->status instanceof BranchStatus
+                    ? $branch->status
+                    : BranchStatus::from((string) $branch->status);
+                $branch->is_active = $status->isActive();
+
+                return;
+            }
+
+            if ($branch->isDirty('is_active')) {
+                $branch->status = BranchStatus::fromLegacyIsActive((bool) $branch->is_active);
+            }
+        });
+    }
 
     /**
      * @return array<string, string>
@@ -32,6 +52,7 @@ class Branch extends Model
     {
         return [
             'branch_type' => BranchType::class,
+            'status' => BranchStatus::class,
             'ghn_district_id' => 'integer',
             'is_active' => 'boolean',
         ];
