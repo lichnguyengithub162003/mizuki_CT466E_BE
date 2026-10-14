@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\V1\Admin\ReviewController as AdminReviewController;
 use App\Http\Controllers\Api\V1\Admin\SkinProfileController as AdminSkinProfileController;
 use App\Http\Controllers\Api\V1\Admin\StaffController as AdminStaffController;
 use App\Http\Controllers\Api\V1\Auth\CustomerAuthController;
+use App\Http\Controllers\Api\V1\Auth\SelfServiceProfileController;
 use App\Http\Controllers\Api\V1\BranchController;
 use App\Http\Controllers\Api\V1\Cashier\PosController;
 use App\Http\Controllers\Api\V1\Catalog\BrandController;
@@ -65,6 +66,15 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
             ->middleware(['auth:sanctum', 'staff-session-generation'])
             ->block(10, 10)
             ->name('logout');
+        Route::middleware(['auth:sanctum', 'staff-session-generation'])->prefix('profile')->name('profile.')->group(function (): void {
+            Route::get('/', [SelfServiceProfileController::class, 'show'])->name('show');
+            Route::patch('/', [SelfServiceProfileController::class, 'update'])->name('update');
+            Route::post('avatar/uploads', [SelfServiceProfileController::class, 'stageAvatar'])->name('avatar.uploads.store');
+            Route::get('avatar/uploads/{uploadToken}/preview', [SelfServiceProfileController::class, 'previewAvatar'])
+                ->middleware('signed')->name('avatar.uploads.preview');
+            Route::patch('avatar', [SelfServiceProfileController::class, 'updateAvatar'])->name('avatar.update');
+            Route::patch('password', [SelfServiceProfileController::class, 'changePassword'])->name('password.update');
+        });
         Route::post('forgot-password', [CustomerAuthController::class, 'forgotPassword'])
             ->middleware('throttle:password.recovery.request')
             ->name('forgot-password');
