@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\UserRole;
+use App\Models\Branch;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
@@ -39,6 +40,93 @@ test('each internal staff role can log in and is recognized by the shared sessio
     'branch manager' => UserRole::BranchManager,
     'super admin' => UserRole::SuperAdmin,
 ]);
+
+test('staff login and session expose the assigned branch identity', function (): void {
+    $branch = Branch::query()->create([
+        'code' => 'AUTH-NK',
+        'name' => 'Mizuki Ninh Kiều',
+        'branch_type' => 'store',
+        'address' => 'Ninh Kiều, Cần Thơ',
+        'phone' => '02923880001',
+        'email' => 'auth-nk@mizuki.test',
+        'province_code' => '92',
+        'ghn_district_id' => 1,
+        'ghn_ward_code' => '00001',
+        'is_active' => true,
+    ]);
+    $user = User::factory()->create([
+        'email' => 'assigned-manager@mizuki.test',
+        'password' => 'secret-password',
+        'role' => UserRole::BranchManager,
+        'branch_id' => $branch->id,
+    ]);
+
+    $this->postJson('/api/v1/auth/staff-login', [
+        'email' => $user->email,
+        'password' => 'secret-password',
+    ])->assertOk()
+        ->assertJsonPath('data.branch_id', $branch->id)
+        ->assertJsonPath('data.branch.id', $branch->id)
+        ->assertJsonPath('data.branch.name', $branch->name);
+
+    $this->getJson('/api/v1/auth/me')->assertOk()
+        ->assertJsonPath('data.branch_id', $branch->id)
+        ->assertJsonPath('data.branch.id', $branch->id)
+        ->assertJsonPath('data.branch.name', $branch->name);
+});
+
+test('branchless super admin receives a null branch on login and session restore', function (): void {
+    $user = User::factory()->create([
+        'email' => 'system-admin@mizuki.test',
+        'password' => 'secret-password',
+        'role' => UserRole::SuperAdmin,
+        'branch_id' => null,
+    ]);
+
+    $this->postJson('/api/v1/auth/staff-login', [
+        'email' => $user->email,
+        'password' => 'secret-password',
+    ])->assertOk()
+        ->assertJsonPath('data.branch_id', null)
+        ->assertJsonPath('data.branch', null);
+
+    $this->getJson('/api/v1/auth/me')->assertOk()
+        ->assertJsonPath('data.branch_id', null)
+        ->assertJsonPath('data.branch', null);
+});
+
+test('a deleted assigned branch is reported as missing without inventing an identity', function (): void {
+    $branch = Branch::query()->create([
+        'code' => 'AUTH-OLD',
+        'name' => 'Mizuki Old Branch',
+        'branch_type' => 'store',
+        'address' => 'Cần Thơ',
+        'phone' => '02923880002',
+        'email' => 'auth-old@mizuki.test',
+        'province_code' => '92',
+        'ghn_district_id' => 1,
+        'ghn_ward_code' => '00002',
+        'is_active' => true,
+    ]);
+    $user = User::factory()->create([
+        'email' => 'orphaned-manager@mizuki.test',
+        'password' => 'secret-password',
+        'role' => UserRole::BranchManager,
+        'branch_id' => $branch->id,
+    ]);
+    $branch->delete();
+
+    $this->postJson('/api/v1/auth/staff-login', [
+        'email' => $user->email,
+        'password' => 'secret-password',
+    ])->assertOk()
+        ->assertJsonPath('data.branch_id', $branch->id)
+        ->assertJsonPath('data.branch', null);
+
+    $this->getJson('/api/v1/auth/me')->assertOk()
+        ->assertJsonPath('data.branch_id', $branch->id)
+        ->assertJsonPath('data.branch', null);
+});
 
 test('customer is rejected from the staff login area with a clear message', function (): void {
     User::factory()->create([

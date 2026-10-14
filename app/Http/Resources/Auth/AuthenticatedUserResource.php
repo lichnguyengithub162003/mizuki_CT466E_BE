@@ -29,6 +29,10 @@ class AuthenticatedUserResource extends JsonResource
             'role' => $this->role?->value,
             'role_label' => $this->role?->label(),
             'branch_id' => $this->branch_id,
+            'branch' => $this->whenLoaded('branch', fn (): ?array => $this->branch === null ? null : [
+                'id' => $this->branch->id,
+                'name' => $this->branch->name,
+            ]),
             'email_verified_at' => $this->email_verified_at?->toISOString(),
             'created_at' => $this->created_at?->toISOString(),
         ];

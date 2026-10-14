@@ -123,6 +123,7 @@ class CustomerAuthController extends BaseController
     public function staffLogin(StaffLoginRequest $request): JsonResponse
     {
         $user = $this->auth->staffLogin($request->validated(), $request);
+        $user->loadMissing('branch:id,name');
 
         return $this->successResponse(
             request: $request,
@@ -136,6 +137,7 @@ class CustomerAuthController extends BaseController
         /** @var User $authenticatedUser */
         $authenticatedUser = $request->user();
         $user = $this->auth->currentUser($authenticatedUser);
+        $user->loadMissing('branch:id,name');
 
         return $this->successResponse(
             request: $request,
