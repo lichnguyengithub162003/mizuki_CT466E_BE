@@ -17,6 +17,7 @@ use App\Services\Auth\CustomerAuthService;
 use App\Services\Auth\PasswordRecoveryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use OpenApi\Annotations as OA;
 
 class CustomerAuthController extends BaseController
@@ -123,6 +124,7 @@ class CustomerAuthController extends BaseController
     public function staffLogin(StaffLoginRequest $request): JsonResponse
     {
         $user = $this->auth->staffLogin($request->validated(), $request);
+        Auth::guard('web')->getSession()->put('staff_auth_generation', $user->auth_generation);
         $user->loadMissing('branch:id,name');
 
         return $this->successResponse(

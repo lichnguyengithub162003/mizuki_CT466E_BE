@@ -12,6 +12,8 @@ use App\Models\StaffLifecycleEvent;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\TestCase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -24,6 +26,15 @@ beforeEach(function (): void {
 afterEach(function (): void {
     CarbonImmutable::setTestNow();
 });
+
+function actingAsStaffDetail(TestCase $test, User $staff): TestCase
+{
+    Auth::forgetGuards();
+    $test->actingAs($staff, 'web');
+    Auth::guard('web')->getSession()->put('staff_auth_generation', $staff->refresh()->auth_generation);
+
+    return $test;
+}
 
 function createStaffDetailBranch(string $prefix): Branch
 {
@@ -128,7 +139,7 @@ test('staff detail returns current assignment employment timeline permissions an
     ]);
     $admin = createStaffDetailMember(UserRole::SuperAdmin, null);
 
-    $this->actingAs($admin)->getJson("/api/v1/admin/staff/{$staff->id}")
+    actingAsStaffDetail($this, $admin)->getJson("/api/v1/admin/staff/{$staff->id}")
         ->assertOk()
         ->assertJsonPath('data.id', $staff->id)
         ->assertJsonPath('data.code', $staff->staff_code)
@@ -155,11 +166,11 @@ test('staff detail preserves super admin visibility and branch manager scope', f
     $otherStaff = createStaffDetailMember(UserRole::Technician, $otherBranch);
     $superAdmin = createStaffDetailMember(UserRole::SuperAdmin, null);
 
-    $this->actingAs($manager)->getJson("/api/v1/admin/staff/{$ownStaff->id}")->assertOk();
+    actingAsStaffDetail($this, $manager)->getJson("/api/v1/admin/staff/{$ownStaff->id}")->assertOk();
     $this->getJson("/api/v1/admin/staff/{$otherStaff->id}")->assertNotFound();
     $this->getJson("/api/v1/admin/staff/{$superAdmin->id}")->assertNotFound();
 
-    $this->actingAs($superAdmin)->getJson("/api/v1/admin/staff/{$otherStaff->id}")->assertOk();
+    actingAsStaffDetail($this, $superAdmin)->getJson("/api/v1/admin/staff/{$otherStaff->id}")->assertOk();
 });
 
 test('assignment change closes current assignment synchronizes user and records immutable history', function (): void {
@@ -180,7 +191,7 @@ test('assignment change closes current assignment synchronizes user and records 
     $historicalSnapshot = collect($historical->refresh()->getAttributes())->sortKeys()->all();
     $current = $staff->staffAssignments()->whereNull('effective_to')->firstOrFail();
 
-    $this->actingAs($admin)->postJson("/api/v1/admin/staff/{$staff->id}/assignment", [
+    actingAsStaffDetail($this, $admin)->postJson("/api/v1/admin/staff/{$staff->id}/assignment", [
         'branch_id' => $newBranch->id,
         'role' => UserRole::Technician->value,
         'job_title' => 'Bác sĩ da liễu',
@@ -209,7 +220,7 @@ test('same-branch role and job title change creates a new assignment period', fu
     $staff = createStaffDetailMember(UserRole::Cashier, $branch, ['job_title' => 'Nhân viên bán hàng']);
     $admin = createStaffDetailMember(UserRole::SuperAdmin, null);
 
-    $this->actingAs($admin)->postJson("/api/v1/admin/staff/{$staff->id}/assignment", [
+    actingAsStaffDetail($this, $admin)->postJson("/api/v1/admin/staff/{$staff->id}/assignment", [
         'role' => UserRole::Technician->value,
         'job_title' => 'Kỹ thuật viên chăm sóc da',
         'work_area' => 'clinic',
@@ -235,7 +246,7 @@ test('sales staff role transitions keep role work area and assignment synchroniz
     $manager = createStaffDetailMember(UserRole::BranchManager, $firstBranch);
     $salesStaff = createStaffDetailMember(UserRole::SalesStaff, $firstBranch);
     $admin = createStaffDetailMember(UserRole::SuperAdmin, null);
-    $this->actingAs($admin);
+    actingAsStaffDetail($this, $admin);
 
     $this->postJson("/api/v1/admin/staff/{$technician->id}/assignment", [
         'role' => UserRole::SalesStaff->value,
@@ -290,7 +301,7 @@ test('branch manager can manage same branch sales staff without gaining sales st
         ->assertJsonPath('data.role', UserRole::SalesStaff->value);
     $this->getJson('/api/v1/admin/staff')->assertForbidden();
 
-    $this->actingAs($manager)->getJson("/api/v1/admin/staff/{$salesStaff->id}")
+    actingAsStaffDetail($this, $manager)->getJson("/api/v1/admin/staff/{$salesStaff->id}")
         ->assertOk()
         ->assertJsonPath('data.permissions.change_assignment', true);
     $this->postJson("/api/v1/admin/staff/{$salesStaff->id}/assignment", [
@@ -298,14 +309,14 @@ test('branch manager can manage same branch sales staff without gaining sales st
         'work_area' => 'clinic',
     ])->assertOk();
 
-    $this->actingAs($salesStaff->refresh())->getJson('/api/v1/admin/staff')->assertForbidden();
+    actingAsStaffDetail($this, $salesStaff->refresh())->getJson('/api/v1/admin/staff')->assertForbidden();
 });
 
 test('assignment rejects role and work area combinations that are operationally nonsensical', function (): void {
     $branch = createStaffDetailBranch('SDI');
     $staff = createStaffDetailMember(UserRole::Technician, $branch);
     $admin = createStaffDetailMember(UserRole::SuperAdmin, null);
-    $this->actingAs($admin);
+    actingAsStaffDetail($this, $admin);
 
     foreach ([
         [UserRole::SalesStaff, 'system'],
@@ -334,7 +345,7 @@ test('existing staff create and update endpoints initialize and preserve assignm
     $branch = createStaffDetailBranch('SDC');
     $admin = createStaffDetailMember(UserRole::SuperAdmin, null);
 
-    $response = $this->actingAs($admin)->postJson('/api/v1/admin/staff', [
+    $response = actingAsStaffDetail($this, $admin)->postJson('/api/v1/admin/staff', [
         'name' => 'Nhân viên mới',
         'email' => 'new.staff.detail@mizuki.test',
         'password' => 'password123',
@@ -364,7 +375,7 @@ test('branch manager cannot transfer staff outside own branch', function (): voi
     $manager = createStaffDetailMember(UserRole::BranchManager, $ownBranch);
     $staff = createStaffDetailMember(UserRole::Technician, $ownBranch);
 
-    $this->actingAs($manager)->postJson("/api/v1/admin/staff/{$staff->id}/assignment", [
+    actingAsStaffDetail($this, $manager)->postJson("/api/v1/admin/staff/{$staff->id}/assignment", [
         'branch_id' => $otherBranch->id,
         'reason' => 'Không được phép',
     ])->assertUnprocessable()
@@ -380,14 +391,14 @@ test('role change updates authorization scope immediately', function (): void {
     $manager = createStaffDetailMember(UserRole::BranchManager, $branch);
     $admin = createStaffDetailMember(UserRole::SuperAdmin, null);
 
-    $this->actingAs($admin)->postJson("/api/v1/admin/staff/{$manager->id}/assignment", [
+    actingAsStaffDetail($this, $admin)->postJson("/api/v1/admin/staff/{$manager->id}/assignment", [
         'role' => UserRole::Cashier->value,
         'work_area' => 'retail',
         'reason' => 'Điều chỉnh nhiệm vụ',
     ])->assertOk()
         ->assertJsonPath('data.role', UserRole::Cashier->value);
 
-    $this->actingAs($manager->refresh())->getJson('/api/v1/admin/staff')->assertForbidden();
+    actingAsStaffDetail($this, $manager->refresh())->getJson('/api/v1/admin/staff')->assertForbidden();
     expect($manager->staffLifecycleEvents()->where('event_type', StaffLifecycleEvent::ROLE_CHANGED)->exists())->toBeTrue();
 });
 
@@ -398,7 +409,7 @@ test('preflight reports active appointment blockers but ignores completed histor
     $admin = createStaffDetailMember(UserRole::SuperAdmin, null);
     createStaffDetailAppointment($staff, AppointmentStatus::Completed);
 
-    $this->actingAs($admin)->postJson("/api/v1/admin/staff/{$staff->id}/assignment/preflight", [
+    actingAsStaffDetail($this, $admin)->postJson("/api/v1/admin/staff/{$staff->id}/assignment/preflight", [
         'branch_id' => $newBranch->id,
     ])->assertOk()
         ->assertJsonPath('data.can_transfer', true)
@@ -431,7 +442,7 @@ test('preflight and assignment recheck current open pos sessions but ignore comp
     createStaffDetailPosSession($cashier, 'open', '2026-09-11 08:30:00');
     $activeSession = createStaffDetailPosSession($cashier);
 
-    $this->actingAs($admin)->postJson("/api/v1/admin/staff/{$cashier->id}/assignment/preflight", [
+    actingAsStaffDetail($this, $admin)->postJson("/api/v1/admin/staff/{$cashier->id}/assignment/preflight", [
         'branch_id' => $newBranch->id,
     ])->assertOk()
         ->assertJsonPath('data.can_transfer', false)
@@ -458,7 +469,7 @@ test('employment status transitions preserve assignment history and create lifec
     $staff = createStaffDetailMember(UserRole::Cashier, $branch);
     $admin = createStaffDetailMember(UserRole::SuperAdmin, null);
 
-    $this->actingAs($admin)->patchJson("/api/v1/admin/staff/{$staff->id}/employment-status", [])
+    actingAsStaffDetail($this, $admin)->patchJson("/api/v1/admin/staff/{$staff->id}/employment-status", [])
         ->assertUnprocessable()
         ->assertJsonStructure(['data' => ['errors' => ['status']]]);
 
@@ -500,7 +511,7 @@ test('authorized trash and restore preserve historical related data and normal v
     $admin = createStaffDetailMember(UserRole::SuperAdmin, null);
     $appointment = createStaffDetailAppointment($staff, AppointmentStatus::Completed);
 
-    $this->actingAs($admin)->deleteJson("/api/v1/admin/staff/{$staff->id}")
+    actingAsStaffDetail($this, $admin)->deleteJson("/api/v1/admin/staff/{$staff->id}")
         ->assertOk();
 
     expect($staff->refresh()->trashed())->toBeTrue()
@@ -521,7 +532,7 @@ test('authorized trash and restore preserve historical related data and normal v
     ])->assertOk()
         ->assertJsonPath('data.id', $customer->id);
 
-    $this->actingAs($admin);
+    actingAsStaffDetail($this, $admin);
     $this->postJson("/api/v1/admin/staff/{$staff->id}/restore")
         ->assertOk()
         ->assertJsonPath('data.id', $staff->id);
@@ -533,7 +544,7 @@ test('authorized trash and restore preserve historical related data and normal v
 test('system preserves a final usable super admin and permits transitions while another remains', function (): void {
     $branch = createStaffDetailBranch('SDX');
     $admin = createStaffDetailMember(UserRole::SuperAdmin, null);
-    $this->actingAs($admin)->deleteJson("/api/v1/admin/staff/{$admin->id}")
+    actingAsStaffDetail($this, $admin)->deleteJson("/api/v1/admin/staff/{$admin->id}")
         ->assertUnprocessable()
         ->assertJsonPath('data.errors.staff.0', 'Không thể vô hiệu hóa Super Admin cuối cùng. Vui lòng tạo một Super Admin khác trước');
     $this->patchJson("/api/v1/admin/staff/{$admin->id}/employment-status", [
@@ -582,7 +593,7 @@ test('active branch preserves its last usable manager across all staff mutation 
     }
     $assignmentCount = $manager->staffAssignments()->count();
     $eventCount = $manager->staffLifecycleEvents()->count();
-    $this->actingAs($admin);
+    actingAsStaffDetail($this, $admin);
     $url = "/api/v1/admin/staff/{$manager->id}";
     $response = match ($operation) {
         'left' => $this->patchJson($url.'/employment-status', ['status' => 'left']),
@@ -621,7 +632,7 @@ test('last manager guard allows harmless updates and does not apply to inactive 
     $branch = createStaffDetailBranch('BMI');
     $manager = createStaffDetailMember(UserRole::BranchManager, $branch);
     $admin = createStaffDetailMember(UserRole::SuperAdmin, null);
-    $this->actingAs($admin)->patchJson("/api/v1/admin/staff/{$manager->id}", [
+    actingAsStaffDetail($this, $admin)->patchJson("/api/v1/admin/staff/{$manager->id}", [
         'job_title' => 'Quản lý vận hành',
     ])->assertOk();
     $branch->update(['is_active' => false]);

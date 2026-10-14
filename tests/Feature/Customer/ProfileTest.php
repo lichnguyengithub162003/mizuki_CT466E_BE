@@ -28,6 +28,8 @@ test('a guest cannot view profile', function (): void {
 });
 
 test('profile response includes phone and avatar', function (): void {
+    Storage::fake('public');
+    Storage::disk('public')->put('avatars/customer.jpg', 'customer avatar');
     $user = User::factory()->create([
         'role' => UserRole::Customer,
         'phone' => '0901234567',
@@ -39,7 +41,12 @@ test('profile response includes phone and avatar', function (): void {
         ->assertOk()
         ->assertJsonPath('success', true)
         ->assertJsonPath('data.phone', '0901234567')
-        ->assertJsonPath('data.avatar', 'avatars/customer.jpg');
+        ->assertJsonPath('data.avatar', Storage::disk('public')->url('avatars/customer.jpg'));
+
+    $this->assertDatabaseHas('users', [
+        'id' => $user->id,
+        'avatar' => 'avatars/customer.jpg',
+    ]);
 });
 
 test('a customer can update their profile', function (): void {
@@ -109,10 +116,11 @@ test('a customer can upload their avatar', function (): void {
         ->assertJsonPath('success', true)
         ->assertJsonPath('message', 'Cập nhật ảnh đại diện thành công!');
 
-    $avatarPath = $response->json('data.avatar');
+    $avatarPath = $user->refresh()->avatar;
 
     expect($avatarPath)->toStartWith('avatars/');
     Storage::disk('public')->assertExists($avatarPath);
+    expect($response->json('data.avatar'))->toBe(Storage::disk('public')->url($avatarPath));
     $this->assertDatabaseHas('users', [
         'id' => $user->id,
         'avatar' => $avatarPath,
@@ -134,14 +142,14 @@ test('a customer avatar upload rejects invalid files', function (): void {
 
 test('a customer can change their password', function (): void {
     $user = User::factory()->create([
-        'role'     => UserRole::Customer,
+        'role' => UserRole::Customer,
         'password' => bcrypt('oldpassword123'),
     ]);
     $this->actingAs($user);
 
     $this->patchJson('/api/v1/customer/profile/change-password', [
-        'current_password'      => 'oldpassword123',
-        'password'              => 'newpassword456',
+        'current_password' => 'oldpassword123',
+        'password' => 'newpassword456',
         'password_confirmation' => 'newpassword456',
     ])
         ->assertOk()
@@ -151,14 +159,14 @@ test('a customer can change their password', function (): void {
 
 test('change password fails with wrong current password', function (): void {
     $user = User::factory()->create([
-        'role'     => UserRole::Customer,
+        'role' => UserRole::Customer,
         'password' => bcrypt('oldpassword123'),
     ]);
     $this->actingAs($user);
 
     $this->patchJson('/api/v1/customer/profile/change-password', [
-        'current_password'      => 'wrongpassword',
-        'password'              => 'newpassword456',
+        'current_password' => 'wrongpassword',
+        'password' => 'newpassword456',
         'password_confirmation' => 'newpassword456',
     ])
         ->assertStatus(400)
@@ -183,14 +191,14 @@ test('a customer can add a new address', function (): void {
     $this->actingAs($user);
 
     $this->postJson('/api/v1/customer/addresses', [
-        'recipient_name'  => 'Nguyễn Văn A',
+        'recipient_name' => 'Nguyễn Văn A',
         'recipient_phone' => '0901234567',
-        'province'        => 'Cần Thơ',
-        'district'        => 'Ninh Kiều',
-        'ward'            => 'An Khánh',
-        'hamlet'          => 'Khu vực 3',
-        'address_line'    => '123 Đường 3/2',
-        'is_default'      => true,
+        'province' => 'Cần Thơ',
+        'district' => 'Ninh Kiều',
+        'ward' => 'An Khánh',
+        'hamlet' => 'Khu vực 3',
+        'address_line' => '123 Đường 3/2',
+        'is_default' => true,
     ])
         ->assertCreated()
         ->assertJsonPath('success', true)
@@ -202,7 +210,7 @@ test('a customer can add a new address', function (): void {
 });
 
 test('a customer can update an address', function (): void {
-    $user    = User::factory()->create(['role' => UserRole::Customer]);
+    $user = User::factory()->create(['role' => UserRole::Customer]);
     $address = UserAddress::factory()->create(['user_id' => $user->id]);
     $this->actingAs($user);
 
@@ -216,8 +224,8 @@ test('a customer can update an address', function (): void {
 });
 
 test('a customer cannot update another user address', function (): void {
-    $user    = User::factory()->create(['role' => UserRole::Customer]);
-    $other   = User::factory()->create(['role' => UserRole::Customer]);
+    $user = User::factory()->create(['role' => UserRole::Customer]);
+    $other = User::factory()->create(['role' => UserRole::Customer]);
     $address = UserAddress::factory()->create(['user_id' => $other->id]);
     $this->actingAs($user);
 
@@ -228,7 +236,7 @@ test('a customer cannot update another user address', function (): void {
 });
 
 test('a customer can delete an address', function (): void {
-    $user    = User::factory()->create(['role' => UserRole::Customer]);
+    $user = User::factory()->create(['role' => UserRole::Customer]);
     $address = UserAddress::factory()->create(['user_id' => $user->id]);
     $this->actingAs($user);
 
@@ -241,7 +249,7 @@ test('a customer can delete an address', function (): void {
 });
 
 test('a customer can set default address', function (): void {
-    $user     = User::factory()->create(['role' => UserRole::Customer]);
+    $user = User::factory()->create(['role' => UserRole::Customer]);
     $address1 = UserAddress::factory()->create(['user_id' => $user->id, 'is_default' => true]);
     $address2 = UserAddress::factory()->create(['user_id' => $user->id, 'is_default' => false]);
     $this->actingAs($user);

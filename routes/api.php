@@ -58,11 +58,11 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
             ->middleware('throttle:auth.login')
             ->name('staff-login');
         Route::get('me', [CustomerAuthController::class, 'me'])
-            ->middleware('auth:sanctum')
+            ->middleware(['auth:sanctum', 'staff-session-generation'])
             ->block(10, 10)
             ->name('me');
         Route::post('logout', [CustomerAuthController::class, 'logout'])
-            ->middleware('auth:sanctum')
+            ->middleware(['auth:sanctum', 'staff-session-generation'])
             ->block(10, 10)
             ->name('logout');
         Route::post('forgot-password', [CustomerAuthController::class, 'forgotPassword'])
@@ -78,7 +78,7 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
     });
 
     // Customer routes
-    Route::prefix('customer')->name('customer.')->middleware('auth:sanctum')->group(function (): void {
+    Route::prefix('customer')->name('customer.')->middleware(['auth:sanctum', 'staff-session-generation'])->group(function (): void {
         // Profile
         Route::get('profile', [ProfileController::class, 'show'])->name('profile.show');
         Route::patch('profile', [ProfileController::class, 'update'])->name('profile.update');
@@ -177,7 +177,7 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
         ->name('shipping.ghn.webhook');
 
     // Admin routes
-    Route::prefix('admin')->name('admin.')->middleware('auth:sanctum')->group(function (): void {
+    Route::prefix('admin')->name('admin.')->middleware(['auth:sanctum', 'staff-session-generation'])->group(function (): void {
         Route::post('media/images', [AdminMediaController::class, 'storeImage'])
             ->middleware('role:branch_manager,super_admin')
             ->name('media.images.store');
@@ -302,7 +302,7 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
 
     Route::prefix('technician/appointments')
         ->name('technician.appointments.')
-        ->middleware(['auth:sanctum', 'role:technician'])
+        ->middleware(['auth:sanctum', 'staff-session-generation', 'role:technician'])
         ->group(function (): void {
             Route::get('/', [TechnicianAppointmentController::class, 'index'])->name('index');
             Route::post('{id}/start', [TechnicianAppointmentController::class, 'start'])->name('start');
@@ -313,11 +313,11 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
     // Cashier POS routes
 
     Route::get('technician/customers/{customer}/skin-profile', [TechnicianSkinProfileController::class, 'show'])
-        ->middleware(['auth:sanctum', 'role:technician'])
+        ->middleware(['auth:sanctum', 'staff-session-generation', 'role:technician'])
         ->name('technician.customers.skin-profile.show');
     Route::prefix('cashier/pos')
         ->name('cashier.pos.')
-        ->middleware(['auth:sanctum', 'role:cashier'])
+        ->middleware(['auth:sanctum', 'staff-session-generation', 'role:cashier'])
         ->group(function (): void {
             Route::get('products', [PosController::class, 'products'])->name('products.index');
             Route::get('products/barcode/{barcode}', [PosController::class, 'barcode'])->name('products.barcode');

@@ -58,6 +58,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'role' => UserRole::class,
             'employment_status' => StaffEmploymentStatus::class,
+            'auth_generation' => 'integer',
         ];
     }
 

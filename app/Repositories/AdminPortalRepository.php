@@ -593,6 +593,9 @@ class AdminPortalRepository
             $this->assertNoStaffBlockers($staff);
             $this->closeCurrentStaffAssignment($staff, CarbonImmutable::now());
             $this->recordStaffEvent($staff, StaffLifecycleEvent::TRASHED, $actor->id, null, [], 'Chuyển nhân viên vào thùng rác');
+            $staff->auth_generation += 1;
+            $staff->save();
+            $staff->tokens()->delete();
             $staff->delete();
 
             return $this->loadStaffDetail($staff);

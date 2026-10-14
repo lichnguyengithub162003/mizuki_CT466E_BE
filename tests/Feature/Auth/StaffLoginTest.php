@@ -4,6 +4,7 @@ use App\Enums\UserRole;
 use App\Models\Branch;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 
 uses(RefreshDatabase::class);
 
@@ -27,6 +28,8 @@ test('each internal staff role can log in and is recognized by the shared sessio
         ->assertJsonPath('meta', []);
 
     $this->assertAuthenticatedAs($user);
+    expect(Auth::guard('web')->getSession()->get('staff_auth_generation'))
+        ->toBe($user->refresh()->auth_generation);
 
     $this->getJson('/api/v1/auth/me')
         ->assertOk()
@@ -40,6 +43,16 @@ test('each internal staff role can log in and is recognized by the shared sessio
     'branch manager' => UserRole::BranchManager,
     'super admin' => UserRole::SuperAdmin,
 ]);
+
+test('a staff session without a bound generation fails closed', function (): void {
+    $user = User::factory()->create([
+        'role' => UserRole::Technician,
+    ]);
+
+    $this->actingAs($user)
+        ->getJson('/api/v1/auth/me')
+        ->assertUnauthorized();
+});
 
 test('staff login and session expose the assigned branch identity', function (): void {
     $branch = Branch::query()->create([
