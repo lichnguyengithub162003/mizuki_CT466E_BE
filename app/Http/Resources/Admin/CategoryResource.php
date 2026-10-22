@@ -23,7 +23,12 @@ class CategoryResource extends JsonResource
             'parent' => $this->whenLoaded('parent', fn () => $this->parent === null ? null : ['id' => $this->parent->id, 'name' => $this->parent->name, 'slug' => $this->parent->slug]),
             'children' => $this->whenLoaded('children', fn () => self::collection($this->children)->resolve($request)),
             'children_count' => (int) ($this->children_count ?? ($this->relationLoaded('children') ? $this->children->count() : 0)),
+            'has_children' => (int) ($this->children_count ?? ($this->relationLoaded('children') ? $this->children->count() : 0)) > 0,
+            'ancestors' => $this->whenLoaded('ancestors', fn () => $this->ancestors->all()),
+            'depth' => $this->whenLoaded('ancestors', fn () => $this->ancestors->count()),
             'product_count' => (int) ($this->products_count ?? 0),
+            'created_at' => $this->created_at,
+            'updated_at' => $this->updated_at,
         ];
     }
 }

@@ -12,6 +12,8 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 
+require_once __DIR__.'/../../Support/PortalStaffSession.php';
+
 uses(RefreshDatabase::class);
 
 function createPortalReadBranch(string $prefix = 'APR'): Branch
@@ -19,10 +21,10 @@ function createPortalReadBranch(string $prefix = 'APR'): Branch
     $token = Str::upper(Str::random(8));
 
     return Branch::query()->create([
-        'code' => $prefix . $token,
-        'name' => 'Mizuki Portal ' . $token,
+        'code' => $prefix.$token,
+        'name' => 'Mizuki Portal '.$token,
         'phone' => '02923999999',
-        'email' => strtolower($token) . '@mizuki.test',
+        'email' => strtolower($token).'@mizuki.test',
         'address' => 'C?n Tho',
         'province_code' => '710',
         'ghn_district_id' => 1572,
@@ -44,15 +46,15 @@ function createPortalReadCatalog(): array
     $token = strtolower(Str::random(8));
 
     $category = Category::query()->create([
-        'name' => 'Portal Category ' . $token,
-        'slug' => 'portal-category-' . $token,
+        'name' => 'Portal Category '.$token,
+        'slug' => 'portal-category-'.$token,
         'sort_order' => 1,
         'is_active' => true,
     ]);
 
     $brand = Brand::query()->create([
-        'name' => 'Portal Brand ' . $token,
-        'slug' => 'portal-brand-' . $token,
+        'name' => 'Portal Brand '.$token,
+        'slug' => 'portal-brand-'.$token,
         'follower_count' => 0,
         'is_active' => true,
     ]);
@@ -60,8 +62,8 @@ function createPortalReadCatalog(): array
     $product = Product::query()->create([
         'category_id' => $category->id,
         'brand_id' => $brand->id,
-        'name' => 'Portal Product ' . $token,
-        'slug' => 'portal-product-' . $token,
+        'name' => 'Portal Product '.$token,
+        'slug' => 'portal-product-'.$token,
         'is_active' => true,
         'is_featured' => false,
     ]);
@@ -69,7 +71,7 @@ function createPortalReadCatalog(): array
     $variant = ProductVariant::query()->create([
         'product_id' => $product->id,
         'name' => 'Default',
-        'sku' => 'PORTAL-' . Str::upper($token),
+        'sku' => 'PORTAL-'.Str::upper($token),
         'price' => 100_000,
         'sale_price' => 90_000,
         'weight' => 100,
@@ -116,7 +118,7 @@ test('super admin can read all new admin portal collections', function (): void 
         'role' => UserRole::SuperAdmin,
     ]);
 
-    $this->actingAs($admin);
+    actingAsPortalUser($this, $admin);
 
     $this->getJson('/api/v1/admin/dashboard')
         ->assertOk()
@@ -232,7 +234,7 @@ test('super admin can read new admin portal detail endpoints', function (): void
         'role' => UserRole::SuperAdmin,
     ]);
 
-    $this->actingAs($admin);
+    actingAsPortalUser($this, $admin);
 
     $this->getJson("/api/v1/admin/customers/{$customer->id}")
         ->assertOk()

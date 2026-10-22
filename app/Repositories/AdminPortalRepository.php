@@ -47,29 +47,29 @@ class AdminPortalRepository
             ->join('orders', 'orders.id', '=', 'payments.order_id')
             ->where('payments.status', PaymentStatus::Paid->value)
             ->whereNotNull('payments.order_id')
-            ->when($branchId !== null, fn($query) => $query->where('orders.branch_id', $branchId))
-            ->when($from !== null, fn($query) => $query->where('payments.paid_at', '>=', $from))
-            ->when($to !== null, fn($query) => $query->where('payments.paid_at', '<=', $to));
+            ->when($branchId !== null, fn ($query) => $query->where('orders.branch_id', $branchId))
+            ->when($from !== null, fn ($query) => $query->where('payments.paid_at', '>=', $from))
+            ->when($to !== null, fn ($query) => $query->where('payments.paid_at', '<=', $to));
 
         $orders = Order::query()
-            ->when($branchId !== null, fn(Builder $query) => $query->where('branch_id', $branchId))
-            ->when($from !== null, fn(Builder $query) => $query->where('created_at', '>=', $from))
-            ->when($to !== null, fn(Builder $query) => $query->where('created_at', '<=', $to));
+            ->when($branchId !== null, fn (Builder $query) => $query->where('branch_id', $branchId))
+            ->when($from !== null, fn (Builder $query) => $query->where('created_at', '>=', $from))
+            ->when($to !== null, fn (Builder $query) => $query->where('created_at', '<=', $to));
         $appointments = Appointment::query()
-            ->when($branchId !== null, fn(Builder $query) => $query->where('branch_id', $branchId))
-            ->when($from !== null, fn(Builder $query) => $query->where('starts_at', '>=', $from))
-            ->when($to !== null, fn(Builder $query) => $query->where('starts_at', '<=', $to));
+            ->when($branchId !== null, fn (Builder $query) => $query->where('branch_id', $branchId))
+            ->when($from !== null, fn (Builder $query) => $query->where('starts_at', '>=', $from))
+            ->when($to !== null, fn (Builder $query) => $query->where('starts_at', '<=', $to));
         $refunds = Refund::query()->where('status', 'requested')
-            ->whereHas('order', fn(Builder $query) => $query->when(
+            ->whereHas('order', fn (Builder $query) => $query->when(
                 $branchId !== null,
-                fn(Builder $branchQuery) => $branchQuery->where('branch_id', $branchId),
+                fn (Builder $branchQuery) => $branchQuery->where('branch_id', $branchId),
             ));
 
         $customerQuery = User::query()->where('role', UserRole::Customer->value);
         if ($branchId !== null) {
             $customerQuery->where(function (Builder $query) use ($branchId): void {
-                $query->whereHas('orders', fn(Builder $orders) => $orders->where('branch_id', $branchId))
-                    ->orWhereHas('appointments', fn(Builder $appointments) => $appointments->where('branch_id', $branchId));
+                $query->whereHas('orders', fn (Builder $orders) => $orders->where('branch_id', $branchId))
+                    ->orWhereHas('appointments', fn (Builder $appointments) => $appointments->where('branch_id', $branchId));
             });
         }
 
@@ -78,7 +78,7 @@ class AdminPortalRepository
             ->groupByRaw('DATE(payments.paid_at)')
             ->orderBy('date')
             ->get()
-            ->map(fn($row): array => [
+            ->map(fn ($row): array => [
                 'date' => (string) $row->date,
                 'revenue' => (int) $row->revenue,
                 'orders' => (int) $row->orders,
@@ -89,7 +89,7 @@ class AdminPortalRepository
             ->groupBy('payments.method')
             ->orderBy('payments.method')
             ->get()
-            ->map(fn($row): array => [
+            ->map(fn ($row): array => [
                 'method' => (string) $row->getRawOriginal('method'),
                 'count' => (int) $row->aggregate_count,
                 'amount' => (int) $row->aggregate_amount,
@@ -101,13 +101,13 @@ class AdminPortalRepository
             ->leftJoin('product_variants', 'product_variants.id', '=', 'order_items.product_variant_id')
             ->leftJoin('products', 'products.id', '=', 'product_variants.product_id')
             ->where('payments.status', PaymentStatus::Paid->value)
-            ->when($branchId !== null, fn($query) => $query->where('orders.branch_id', $branchId))
-            ->when($from !== null, fn($query) => $query->where('payments.paid_at', '>=', $from))
-            ->when($to !== null, fn($query) => $query->where('payments.paid_at', '<=', $to))
+            ->when($branchId !== null, fn ($query) => $query->where('orders.branch_id', $branchId))
+            ->when($from !== null, fn ($query) => $query->where('payments.paid_at', '>=', $from))
+            ->when($to !== null, fn ($query) => $query->where('payments.paid_at', '<=', $to))
             ->selectRaw('products.id as product_id, order_items.product_name, SUM(order_items.quantity) as quantity, SUM(order_items.line_total) as revenue')
             ->groupBy('products.id', 'order_items.product_name')
             ->orderByDesc('quantity')->limit(10)->get();
-        $productIds = $topProducts->pluck('product_id')->filter()->map(fn($id): int => (int) $id);
+        $productIds = $topProducts->pluck('product_id')->filter()->map(fn ($id): int => (int) $id);
         $images = DB::table('product_images')->whereIn('product_id', $productIds)
             ->orderByDesc('is_primary')->orderBy('sort_order')->orderBy('id')
             ->get()->unique('product_id')->keyBy('product_id');
@@ -123,7 +123,7 @@ class AdminPortalRepository
             ],
             'revenue_series' => $series,
             'payment_methods' => $methods,
-            'top_products' => $topProducts->map(fn($row): array => [
+            'top_products' => $topProducts->map(fn ($row): array => [
                 'product_id' => $row->product_id === null ? null : (int) $row->product_id,
                 'product_name' => (string) $row->product_name,
                 'quantity' => (int) $row->quantity,
@@ -142,11 +142,11 @@ class AdminPortalRepository
         return $query
             ->when(filled($filters['search'] ?? null), function (Builder $query) use ($filters): void {
                 $search = trim((string) $filters['search']);
-                $query->where(fn(Builder $nested) => $nested->where('name', 'like', "%{$search}%")
+                $query->where(fn (Builder $nested) => $nested->where('name', 'like', "%{$search}%")
                     ->orWhere('email', 'like', "%{$search}%")->orWhere('phone', 'like', "%{$search}%"));
             })
             ->withCount(['orders', 'appointments'])
-            ->when(($filters['sort'] ?? 'newest') === 'name', fn(Builder $query) => $query->orderBy('name'), fn(Builder $query) => $query->orderByDesc('created_at'))
+            ->when(($filters['sort'] ?? 'newest') === 'name', fn (Builder $query) => $query->orderBy('name'), fn (Builder $query) => $query->orderByDesc('created_at'))
             ->paginate((int) ($filters['per_page'] ?? 15));
     }
 
@@ -158,8 +158,8 @@ class AdminPortalRepository
         return $query->with([
             'wallet:id,user_id,balance',
             'skinProfile',
-            'orders' => fn($query) => $query->with('payment')->latest()->limit(5),
-            'appointments' => fn($query) => $query->with('branch:id,name')->latest('starts_at')->limit(5),
+            'orders' => fn ($query) => $query->with('payment')->latest()->limit(5),
+            'appointments' => fn ($query) => $query->with('branch:id,name')->latest('starts_at')->limit(5),
         ])->withCount(['orders', 'appointments'])->first();
     }
 
@@ -167,12 +167,12 @@ class AdminPortalRepository
     public function products(array $filters): LengthAwarePaginator
     {
         return Product::query()->with(['brand:id,name,slug', 'category:id,name,slug'])
-            ->with(['images' => fn($query) => $query->orderByDesc('is_primary')->orderBy('sort_order')->orderBy('id')])
+            ->with(['images' => fn ($query) => $query->orderByDesc('is_primary')->orderBy('sort_order')->orderBy('id')])
             ->withCount('variants')
-            ->when(filled($filters['search'] ?? null), fn(Builder $query) => $query->where('name', 'like', '%' . trim((string) $filters['search']) . '%'))
-            ->when(isset($filters['category_id']), fn(Builder $query) => $query->where('category_id', $filters['category_id']))
-            ->when(isset($filters['brand_id']), fn(Builder $query) => $query->where('brand_id', $filters['brand_id']))
-            ->when(array_key_exists('is_active', $filters), fn(Builder $query) => $query->where('is_active', (bool) $filters['is_active']))
+            ->when(filled($filters['search'] ?? null), fn (Builder $query) => $query->where('name', 'like', '%'.trim((string) $filters['search']).'%'))
+            ->when(isset($filters['category_id']), fn (Builder $query) => $query->where('category_id', $filters['category_id']))
+            ->when(isset($filters['brand_id']), fn (Builder $query) => $query->where('brand_id', $filters['brand_id']))
+            ->when(array_key_exists('is_active', $filters), fn (Builder $query) => $query->where('is_active', (bool) $filters['is_active']))
             ->latest()->paginate((int) ($filters['per_page'] ?? 15));
     }
 
@@ -181,8 +181,8 @@ class AdminPortalRepository
         return Product::query()->whereKey($id)->with([
             'brand',
             'category',
-            'images' => fn($query) => $query->orderByDesc('is_primary')->orderBy('sort_order')->orderBy('id'),
-            'variants' => fn($query) => $query->orderBy('sort_order')->orderBy('id'),
+            'images' => fn ($query) => $query->orderByDesc('is_primary')->orderBy('sort_order')->orderBy('id'),
+            'variants' => fn ($query) => $query->orderBy('sort_order')->orderBy('id'),
             'variants.inventories.branch:id,name',
         ])->first();
     }
@@ -219,15 +219,73 @@ class AdminPortalRepository
     /** @param array<string, mixed> $filters @return LengthAwarePaginator<int, Category> */
     public function categories(array $filters): LengthAwarePaginator
     {
-        return Category::query()->with('parent:id,name,slug')->withCount(['children', 'products'])
-            ->when(filled($filters['search'] ?? null), fn(Builder $query) => $query->where('name', 'like', '%' . trim((string) $filters['search']) . '%'))
-            ->when(array_key_exists('is_active', $filters), fn(Builder $query) => $query->where('is_active', (bool) $filters['is_active']))
-            ->orderBy('sort_order')->orderBy('name')->paginate((int) ($filters['per_page'] ?? 100));
+        $mode = $filters['mode'] ?? 'flat';
+        $sort = $filters['sort'] ?? 'sort_order';
+        $direction = $filters['direction'] ?? 'asc';
+
+        $query = Category::query()->with('parent:id,parent_id,name,slug')->withCount(['children', 'products'])
+            ->when($mode === 'root', fn (Builder $query) => $query->whereNull('parent_id'))
+            ->when($mode === 'children', fn (Builder $query) => $query->where('parent_id', $filters['parent_id']))
+            ->when(filled($filters['search'] ?? null), function (Builder $query) use ($filters): void {
+                $term = '%'.trim((string) $filters['search']).'%';
+                $query->where(fn (Builder $query) => $query->where('name', 'like', $term)->orWhere('slug', 'like', $term));
+            })
+            ->when(array_key_exists('is_active', $filters), fn (Builder $query) => $query->where('is_active', (bool) $filters['is_active']))
+            ->when(array_key_exists('has_children', $filters), fn (Builder $query) => (bool) $filters['has_children'] ? $query->has('children') : $query->doesntHave('children'));
+
+        $query->orderBy($sort === 'product_count' ? 'products_count' : $sort, $direction);
+        if ($sort === 'sort_order') {
+            $query->orderBy('name');
+        }
+        $items = $query->orderBy('id')->paginate((int) ($filters['per_page'] ?? 100));
+        $this->loadCategoryAncestors($items);
+
+        return $items;
+    }
+
+    /** @param LengthAwarePaginator<int, Category> $items */
+    private function loadCategoryAncestors(LengthAwarePaginator $items): void
+    {
+        $rows = $items->getCollection();
+        $byId = $rows->keyBy('id')->all();
+        $frontier = $rows->pluck('parent_id')->filter()->unique()->values()->all();
+        $seen = array_fill_keys(array_keys($byId), true);
+
+        while ($frontier !== []) {
+            $missing = array_values(array_filter($frontier, fn ($id) => ! isset($seen[$id])));
+            if ($missing === []) {
+                break;
+            }
+            foreach ($missing as $id) {
+                $seen[$id] = true;
+            }
+            $parents = Category::query()->whereKey($missing)->get(['id', 'parent_id', 'name', 'slug']);
+            $frontier = [];
+            foreach ($parents as $parent) {
+                $byId[$parent->id] = $parent;
+                if ($parent->parent_id !== null) {
+                    $frontier[] = $parent->parent_id;
+                }
+            }
+        }
+
+        foreach ($rows as $category) {
+            $ancestors = [];
+            $visited = [$category->id => true];
+            $parentId = $category->parent_id;
+            while ($parentId !== null && ! isset($visited[$parentId]) && isset($byId[$parentId])) {
+                $visited[$parentId] = true;
+                $parent = $byId[$parentId];
+                $ancestors[] = ['id' => $parent->id, 'name' => $parent->name, 'slug' => $parent->slug];
+                $parentId = $parent->parent_id;
+            }
+            $category->setRelation('ancestors', collect(array_reverse($ancestors)));
+        }
     }
 
     public function category(int $id): ?Category
     {
-        return Category::query()->with(['parent:id,name,slug', 'children' => fn($query) => $query->orderBy('sort_order')])
+        return Category::query()->with(['parent:id,name,slug', 'children' => fn ($query) => $query->orderBy('sort_order')])
             ->withCount('products')->find($id);
     }
 
@@ -244,8 +302,8 @@ class AdminPortalRepository
     public function brands(array $filters): LengthAwarePaginator
     {
         return Brand::query()->withCount('products')
-            ->when(filled($filters['search'] ?? null), fn(Builder $query) => $query->where('name', 'like', '%' . trim((string) $filters['search']) . '%'))
-            ->when(array_key_exists('is_active', $filters), fn(Builder $query) => $query->where('is_active', (bool) $filters['is_active']))
+            ->when(filled($filters['search'] ?? null), fn (Builder $query) => $query->where('name', 'like', '%'.trim((string) $filters['search']).'%'))
+            ->when(array_key_exists('is_active', $filters), fn (Builder $query) => $query->where('is_active', (bool) $filters['is_active']))
             ->orderBy('name')->paginate((int) ($filters['per_page'] ?? 15));
     }
 
@@ -269,14 +327,14 @@ class AdminPortalRepository
         $branchId = $this->effectiveBranchId($actor, $filters);
 
         return BranchInventory::query()->with(['branch:id,code,name', 'productVariant.product:id,name'])
-            ->when($branchId !== null, fn(Builder $query) => $query->where('branch_id', $branchId))
+            ->when($branchId !== null, fn (Builder $query) => $query->where('branch_id', $branchId))
             ->when(filled($filters['search'] ?? null), function (Builder $query) use ($filters): void {
                 $search = trim((string) $filters['search']);
-                $query->whereHas('productVariant', fn(Builder $variant) => $variant
+                $query->whereHas('productVariant', fn (Builder $variant) => $variant
                     ->where('sku', 'like', "%{$search}%")->orWhere('barcode', 'like', "%{$search}%")
-                    ->orWhereHas('product', fn(Builder $product) => $product->where('name', 'like', "%{$search}%")));
+                    ->orWhereHas('product', fn (Builder $product) => $product->where('name', 'like', "%{$search}%")));
             })
-            ->when(($filters['low_stock'] ?? false), fn(Builder $query) => $query->whereColumn('quantity', '<=', 'reorder_level'))
+            ->when(($filters['low_stock'] ?? false), fn (Builder $query) => $query->whereColumn('quantity', '<=', 'reorder_level'))
             ->orderBy('branch_id')->orderBy('id')->paginate((int) ($filters['per_page'] ?? 15));
     }
 
@@ -317,7 +375,7 @@ class AdminPortalRepository
             $inventory->quantity = $quantityAfter;
             $inventory->save();
             $inventory->transactions()->create([
-                'transaction_number' => 'ADJ-' . now()->format('YmdHis') . '-' . strtoupper(substr((string) Str::uuid(), 0, 8)),
+                'transaction_number' => 'ADJ-'.now()->format('YmdHis').'-'.strtoupper(substr((string) Str::uuid(), 0, 8)),
                 'performed_by_user_id' => $actor->id,
                 'type' => 'adjustment',
                 'quantity_delta' => (int) $data['quantity_delta'],
@@ -334,18 +392,18 @@ class AdminPortalRepository
     /** @param array<string, mixed> $filters @return LengthAwarePaginator<int, Branch> */
     public function branches(User $actor, array $filters): LengthAwarePaginator
     {
-        return Branch::query()->with(['businessHours' => fn($query) => $query->orderBy('weekday')])
-            ->when($actor->role === UserRole::BranchManager, fn(Builder $query) => $query->whereKey($actor->branch_id ?? 0))
-            ->when(filled($filters['search'] ?? null), fn(Builder $query) => $query->where('name', 'like', '%' . trim((string) $filters['search']) . '%'))
-            ->when(isset($filters['status']), fn(Builder $query) => $query->where('status', $filters['status']))
-            ->when(! isset($filters['status']) && array_key_exists('is_active', $filters), fn(Builder $query) => $query->where('is_active', (bool) $filters['is_active']))
+        return Branch::query()->with(['businessHours' => fn ($query) => $query->orderBy('weekday')])
+            ->when($actor->role === UserRole::BranchManager, fn (Builder $query) => $query->whereKey($actor->branch_id ?? 0))
+            ->when(filled($filters['search'] ?? null), fn (Builder $query) => $query->where('name', 'like', '%'.trim((string) $filters['search']).'%'))
+            ->when(isset($filters['status']), fn (Builder $query) => $query->where('status', $filters['status']))
+            ->when(! isset($filters['status']) && array_key_exists('is_active', $filters), fn (Builder $query) => $query->where('is_active', (bool) $filters['is_active']))
             ->orderBy('name')->paginate((int) ($filters['per_page'] ?? 15));
     }
 
     public function branch(User $actor, int $id): ?Branch
     {
-        return Branch::query()->when($actor->role === UserRole::BranchManager, fn(Builder $query) => $query->whereKey($actor->branch_id ?? 0))
-            ->whereKey($id)->with(['businessHours' => fn($query) => $query->orderBy('weekday')])->first();
+        return Branch::query()->when($actor->role === UserRole::BranchManager, fn (Builder $query) => $query->whereKey($actor->branch_id ?? 0))
+            ->whereKey($id)->with(['businessHours' => fn ($query) => $query->orderBy('weekday')])->first();
     }
 
     /** @param array<string, mixed> $data */
@@ -368,7 +426,7 @@ class AdminPortalRepository
                 }
             }
 
-            return $branch->refresh()->load(['businessHours' => fn($query) => $query->orderBy('weekday')]);
+            return $branch->refresh()->load(['businessHours' => fn ($query) => $query->orderBy('weekday')]);
         });
     }
 
@@ -376,13 +434,13 @@ class AdminPortalRepository
     public function staff(User $actor, array $filters): LengthAwarePaginator
     {
         return User::query()->where('role', '!=', UserRole::Customer->value)->with('branch:id,code,name')
-            ->when($actor->role === UserRole::BranchManager, fn(Builder $query) => $query->where('branch_id', $actor->branch_id ?? 0)->where('role', '!=', UserRole::SuperAdmin->value))
-            ->when(isset($filters['branch_id']) && $actor->role === UserRole::SuperAdmin, fn(Builder $query) => $query->where('branch_id', $filters['branch_id']))
-            ->when(isset($filters['role']), fn(Builder $query) => $query->where('role', $filters['role']))
-            ->when(isset($filters['status']), fn(Builder $query) => $query->where('employment_status', $filters['status']))
+            ->when($actor->role === UserRole::BranchManager, fn (Builder $query) => $query->where('branch_id', $actor->branch_id ?? 0)->where('role', '!=', UserRole::SuperAdmin->value))
+            ->when(isset($filters['branch_id']) && $actor->role === UserRole::SuperAdmin, fn (Builder $query) => $query->where('branch_id', $filters['branch_id']))
+            ->when(isset($filters['role']), fn (Builder $query) => $query->where('role', $filters['role']))
+            ->when(isset($filters['status']), fn (Builder $query) => $query->where('employment_status', $filters['status']))
             ->when(filled($filters['search'] ?? null), function (Builder $query) use ($filters): void {
                 $search = trim((string) $filters['search']);
-                $query->where(fn(Builder $nested) => $nested->where('staff_code', 'like', "%{$search}%")->orWhere('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%")->orWhere('phone', 'like', "%{$search}%")->orWhere('job_title', 'like', "%{$search}%"));
+                $query->where(fn (Builder $nested) => $nested->where('staff_code', 'like', "%{$search}%")->orWhere('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%")->orWhere('phone', 'like', "%{$search}%")->orWhere('job_title', 'like', "%{$search}%"));
             })->latest()->paginate((int) ($filters['per_page'] ?? 15));
     }
 
@@ -629,14 +687,14 @@ class AdminPortalRepository
         $this->scopeReviews($query, $actor);
 
         return $query
-            ->when(($filters['type'] ?? null) === 'product', fn(Builder $query) => $query->whereNotNull('product_id'))
-            ->when(($filters['type'] ?? null) === 'service', fn(Builder $query) => $query->whereNotNull('service_id'))
-            ->when(isset($filters['rating']), fn(Builder $query) => $query->where('rating', $filters['rating']))
-            ->when(($filters['visibility'] ?? null) === 'visible', fn(Builder $query) => $query->where('is_visible', true))
-            ->when(($filters['visibility'] ?? null) === 'hidden', fn(Builder $query) => $query->where('is_visible', false))
+            ->when(($filters['type'] ?? null) === 'product', fn (Builder $query) => $query->whereNotNull('product_id'))
+            ->when(($filters['type'] ?? null) === 'service', fn (Builder $query) => $query->whereNotNull('service_id'))
+            ->when(isset($filters['rating']), fn (Builder $query) => $query->where('rating', $filters['rating']))
+            ->when(($filters['visibility'] ?? null) === 'visible', fn (Builder $query) => $query->where('is_visible', true))
+            ->when(($filters['visibility'] ?? null) === 'hidden', fn (Builder $query) => $query->where('is_visible', false))
             ->when(filled($filters['search'] ?? null), function (Builder $query) use ($filters): void {
                 $search = trim((string) $filters['search']);
-                $query->where(fn(Builder $nested) => $nested->where('title', 'like', "%{$search}%")->orWhere('comment', 'like', "%{$search}%")->orWhere('source_author_name', 'like', "%{$search}%"));
+                $query->where(fn (Builder $nested) => $nested->where('title', 'like', "%{$search}%")->orWhere('comment', 'like', "%{$search}%")->orWhere('source_author_name', 'like', "%{$search}%"));
             })->latest()->paginate((int) ($filters['per_page'] ?? 15));
     }
 
@@ -663,9 +721,9 @@ class AdminPortalRepository
             return;
         }
         $branchId = $actor->branch_id ?? 0;
-        $query->where(fn(Builder $nested) => $nested
-            ->whereHas('orders', fn(Builder $orders) => $orders->where('branch_id', $branchId))
-            ->orWhereHas('appointments', fn(Builder $appointments) => $appointments->where('branch_id', $branchId)));
+        $query->where(fn (Builder $nested) => $nested
+            ->whereHas('orders', fn (Builder $orders) => $orders->where('branch_id', $branchId))
+            ->orWhereHas('appointments', fn (Builder $appointments) => $appointments->where('branch_id', $branchId)));
     }
 
     /** @param Builder<Review> $query */
@@ -676,8 +734,8 @@ class AdminPortalRepository
         }
         $branchId = $actor->branch_id ?? 0;
         $query->where(function (Builder $nested) use ($branchId): void {
-            $nested->whereHas('orderItem.order', fn(Builder $orders) => $orders->where('branch_id', $branchId))
-                ->orWhereHas('appointment', fn(Builder $appointments) => $appointments->where('branch_id', $branchId));
+            $nested->whereHas('orderItem.order', fn (Builder $orders) => $orders->where('branch_id', $branchId))
+                ->orWhereHas('appointment', fn (Builder $appointments) => $appointments->where('branch_id', $branchId));
         });
     }
 
@@ -711,7 +769,7 @@ class AdminPortalRepository
             ->where('role', '!=', UserRole::Customer->value)
             ->when(
                 $actor->role === UserRole::BranchManager,
-                fn(Builder $query) => $query
+                fn (Builder $query) => $query
                     ->where('branch_id', $actor->branch_id ?? 0)
                     ->where('role', '!=', UserRole::SuperAdmin->value),
             );
@@ -723,8 +781,8 @@ class AdminPortalRepository
         return [
             'branch:id,code,name',
             'currentAssignment.branch:id,code,name',
-            'staffAssignments' => fn($query) => $query->with('branch:id,code,name')->orderByDesc('effective_from')->orderByDesc('id'),
-            'staffLifecycleEvents' => fn($query) => $query->with('actor:id,name')->latest('occurred_at')->latest('id'),
+            'staffAssignments' => fn ($query) => $query->with('branch:id,code,name')->orderByDesc('effective_from')->orderByDesc('id'),
+            'staffLifecycleEvents' => fn ($query) => $query->with('actor:id,name')->latest('occurred_at')->latest('id'),
         ];
     }
 

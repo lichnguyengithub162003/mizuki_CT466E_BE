@@ -13,6 +13,8 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 
+require_once __DIR__.'/../../Support/PortalStaffSession.php';
+
 uses(RefreshDatabase::class);
 
 function createPortalMutationBranch(string $prefix = 'APM'): Branch
@@ -20,10 +22,10 @@ function createPortalMutationBranch(string $prefix = 'APM'): Branch
     $token = Str::upper(Str::random(8));
 
     return Branch::query()->create([
-        'code' => $prefix . $token,
-        'name' => 'Mizuki Mutation ' . $token,
+        'code' => $prefix.$token,
+        'name' => 'Mizuki Mutation '.$token,
         'phone' => '02923730101',
-        'email' => strtolower($token) . '@mizuki.test',
+        'email' => strtolower($token).'@mizuki.test',
         'address' => 'C?n Tho',
         'province_code' => '710',
         'ghn_district_id' => 1572,
@@ -37,7 +39,7 @@ test('super admin can create and update category brand and product with variant'
         'role' => UserRole::SuperAdmin,
     ]);
 
-    $this->actingAs($admin);
+    actingAsPortalUser($this, $admin);
 
     $categoryResponse = $this->postJson('/api/v1/admin/categories', [
         'name' => 'Portal Mutation Category',
@@ -149,22 +151,22 @@ test('super admin can adjust inventory and immutable ledger records the operator
     $token = strtolower(Str::random(8));
 
     $category = Category::query()->create([
-        'name' => 'Inventory Category ' . $token,
-        'slug' => 'inventory-category-' . $token,
+        'name' => 'Inventory Category '.$token,
+        'slug' => 'inventory-category-'.$token,
         'is_active' => true,
     ]);
 
     $brand = Brand::query()->create([
-        'name' => 'Inventory Brand ' . $token,
-        'slug' => 'inventory-brand-' . $token,
+        'name' => 'Inventory Brand '.$token,
+        'slug' => 'inventory-brand-'.$token,
         'is_active' => true,
     ]);
 
     $product = Product::query()->create([
         'category_id' => $category->id,
         'brand_id' => $brand->id,
-        'name' => 'Inventory Product ' . $token,
-        'slug' => 'inventory-product-' . $token,
+        'name' => 'Inventory Product '.$token,
+        'slug' => 'inventory-product-'.$token,
         'is_active' => true,
         'is_featured' => false,
     ]);
@@ -172,7 +174,7 @@ test('super admin can adjust inventory and immutable ledger records the operator
     $variant = ProductVariant::query()->create([
         'product_id' => $product->id,
         'name' => 'Default',
-        'sku' => 'INV-' . Str::upper($token),
+        'sku' => 'INV-'.Str::upper($token),
         'price' => 100_000,
         'weight' => 100,
         'sort_order' => 0,
@@ -191,7 +193,7 @@ test('super admin can adjust inventory and immutable ledger records the operator
         'role' => UserRole::SuperAdmin,
     ]);
 
-    $this->actingAs($admin);
+    actingAsPortalUser($this, $admin);
 
     $this->postJson("/api/v1/admin/inventory/{$inventory->id}/adjust", [
         'quantity_delta' => 1,
@@ -253,7 +255,7 @@ test('super admin can update branch staff and review moderation', function (): v
         'role' => UserRole::SuperAdmin,
     ]);
 
-    $this->actingAs($admin);
+    actingAsPortalUser($this, $admin);
 
     $this->patchJson("/api/v1/admin/branches/{$branch->id}", [
         'phone' => '02923730109',

@@ -15,6 +15,8 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 
+require_once __DIR__.'/../../Support/PortalStaffSession.php';
+
 uses(RefreshDatabase::class);
 
 function createPortalAuthorizationBranch(string $prefix = 'APA'): Branch
@@ -22,10 +24,10 @@ function createPortalAuthorizationBranch(string $prefix = 'APA'): Branch
     $token = Str::upper(Str::random(8));
 
     return Branch::query()->create([
-        'code' => $prefix . $token,
-        'name' => 'Mizuki Authorization ' . $token,
+        'code' => $prefix.$token,
+        'name' => 'Mizuki Authorization '.$token,
         'phone' => '02923666666',
-        'email' => strtolower($token) . '@mizuki.test',
+        'email' => strtolower($token).'@mizuki.test',
         'address' => 'C?n Tho',
         'province_code' => '710',
         'ghn_district_id' => 1572,
@@ -37,7 +39,7 @@ function createPortalAuthorizationBranch(string $prefix = 'APA'): Branch
 function createPortalAuthorizationOrder(Branch $branch, User $customer): Order
 {
     return Order::query()->create([
-        'order_number' => 'MZ-AUTH-' . Str::upper(Str::random(10)),
+        'order_number' => 'MZ-AUTH-'.Str::upper(Str::random(10)),
         'user_id' => $customer->id,
         'branch_id' => $branch->id,
         'channel' => 'online',
@@ -63,22 +65,22 @@ function createPortalAuthorizationCatalog(): array
     $token = strtolower(Str::random(8));
 
     $category = Category::query()->create([
-        'name' => 'Auth Category ' . $token,
-        'slug' => 'auth-category-' . $token,
+        'name' => 'Auth Category '.$token,
+        'slug' => 'auth-category-'.$token,
         'is_active' => true,
     ]);
 
     $brand = Brand::query()->create([
-        'name' => 'Auth Brand ' . $token,
-        'slug' => 'auth-brand-' . $token,
+        'name' => 'Auth Brand '.$token,
+        'slug' => 'auth-brand-'.$token,
         'is_active' => true,
     ]);
 
     $product = Product::query()->create([
         'category_id' => $category->id,
         'brand_id' => $brand->id,
-        'name' => 'Auth Product ' . $token,
-        'slug' => 'auth-product-' . $token,
+        'name' => 'Auth Product '.$token,
+        'slug' => 'auth-product-'.$token,
         'is_active' => true,
         'is_featured' => false,
     ]);
@@ -86,7 +88,7 @@ function createPortalAuthorizationCatalog(): array
     $variant = ProductVariant::query()->create([
         'product_id' => $product->id,
         'name' => 'Default',
-        'sku' => 'AUTH-' . Str::upper($token),
+        'sku' => 'AUTH-'.Str::upper($token),
         'price' => 100_000,
         'weight' => 100,
         'sort_order' => 0,
@@ -115,7 +117,7 @@ test('guest and non admin roles cannot access new admin portal endpoints', funct
 
     foreach ([UserRole::Customer, UserRole::Cashier, UserRole::Technician] as $role) {
         $user = User::factory()->create(['role' => $role]);
-        $this->actingAs($user);
+        actingAsPortalUser($this, $user);
 
         foreach ($paths as $path) {
             $this->getJson($path)->assertForbidden();
@@ -175,7 +177,7 @@ test('branch manager sees only own operational branch data', function (): void {
         'reorder_level' => 3,
     ]);
 
-    $this->actingAs($manager);
+    actingAsPortalUser($this, $manager);
 
     $this->getJson('/api/v1/admin/dashboard')
         ->assertOk()
@@ -281,7 +283,7 @@ test('branch manager cannot access reviews outside branch review scope while sup
         'is_visible' => true,
     ]);
 
-    $this->actingAs($manager);
+    actingAsPortalUser($this, $manager);
 
     $this->getJson('/api/v1/admin/reviews')
         ->assertOk()
@@ -303,7 +305,7 @@ test('branch manager cannot access reviews outside branch review scope while sup
         'role' => UserRole::SuperAdmin,
     ]);
 
-    $this->actingAs($superAdmin);
+    actingAsPortalUser($this, $superAdmin);
 
     $this->getJson("/api/v1/admin/reviews/{$review->id}")
         ->assertOk()
