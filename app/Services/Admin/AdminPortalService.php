@@ -402,6 +402,13 @@ class AdminPortalService extends BaseService
     /** @param array<string, mixed> $data */
     private function saveCategoryWithMedia(User $actor, ?Category $category, array $data): Category
     {
+        if (array_key_exists('status', $data)) {
+            $data['is_active'] = $data['status'] === Category::STATUS_PUBLISHED;
+        } elseif (array_key_exists('is_active', $data)) {
+            $data['is_active'] = (bool) $data['is_active'];
+            $data['status'] = $data['is_active'] ? Category::STATUS_PUBLISHED : Category::STATUS_HIDDEN;
+        }
+
         $this->validateSingleMediaInput($actor, $data, 'image_upload_token', 'image_url');
         $data = $this->normalizeCurrentReferences($category, $data, [
             'image_upload_token' => 'image_url',

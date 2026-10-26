@@ -20,6 +20,7 @@ class CategoryResource extends JsonResource
             'slug' => $this->slug, 'description' => $this->description, 'image_url' => $imageUrl,
             'image_rendition_url' => $this->mediaUrl($this->image_url, 'category'),
             'sort_order' => $this->sort_order, 'is_active' => (bool) $this->is_active,
+            'status' => $this->status, 'is_featured' => (bool) $this->is_featured,
             'parent' => $this->whenLoaded('parent', fn () => $this->parent === null ? null : ['id' => $this->parent->id, 'name' => $this->parent->name, 'slug' => $this->parent->slug]),
             'children' => $this->whenLoaded('children', fn () => self::collection($this->children)->resolve($request)),
             'children_count' => (int) ($this->children_count ?? ($this->relationLoaded('children') ? $this->children->count() : 0)),
