@@ -21,9 +21,10 @@ class CategoryRepository extends BaseRepository
     /**
      * @return Collection<int, Category>
      */
-    public function getActiveOrdered(): Collection
+    public function getVisibleOrdered(): Collection
     {
         return $this->query()
+            ->where('status', Category::STATUS_PUBLISHED)
             ->where('is_active', true)
             ->orderBy('sort_order')
             ->orderBy('name')
@@ -33,25 +34,21 @@ class CategoryRepository extends BaseRepository
     /**
      * @return list<int>
      */
-    public function getActiveCategoryAndDescendantIds(int $categoryId): array
+    public function getCategoryAndDescendantIds(int $categoryId): array
     {
-        $categories = $this->getActiveOrdered();
-
-        if (! $categories->contains('id', $categoryId)) {
+        if (! Category::query()->whereKey($categoryId)->exists()) {
             return [-1];
         }
 
-        $childrenByParent = $categories->groupBy('parent_id');
-        $ids = [];
-        $queue = [$categoryId];
-
-        for ($index = 0; $index < count($queue); $index++) {
-            $currentId = $queue[$index];
-            $ids[] = $currentId;
-
-            /** @var Category $child */
-            foreach ($childrenByParent->get($currentId, collect()) as $child) {
-                $queue[] = $child->id;
+        $ids = [$categoryId];
+        $frontier = [$categoryId];
+        while ($frontier !== []) {
+            $frontier = Category::query()->whereIn('parent_id', $frontier)
+                ->pluck('id')->map(fn ($id): int => (int) $id)
+                ->reject(fn (int $id): bool => in_array($id, $ids, true))
+                ->values()->all();
+            foreach ($frontier as $id) {
+                $ids[] = $id;
             }
         }
 

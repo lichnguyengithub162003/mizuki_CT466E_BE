@@ -19,7 +19,7 @@ class CategoryService extends BaseService
     public function getActiveHierarchy(): EloquentCollection
     {
         $grouped = $this->categories
-            ->getActiveOrdered()
+            ->getVisibleOrdered()
             ->groupBy(fn (Category $category): string => $category->parent_id === null
                 ? 'root'
                 : (string) $category->parent_id);

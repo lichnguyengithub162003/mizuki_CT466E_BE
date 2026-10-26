@@ -27,7 +27,7 @@ class ProductService extends BaseService
     public function getActiveProducts(array $filters): LengthAwarePaginator
     {
         $categoryIds = isset($filters['category_id'])
-            ? $this->categories->getActiveCategoryAndDescendantIds((int) $filters['category_id'])
+            ? $this->categories->getCategoryAndDescendantIds((int) $filters['category_id'])
             : [];
 
         return $this->products->paginateActive($filters, $categoryIds);
