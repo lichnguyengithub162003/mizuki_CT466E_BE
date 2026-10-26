@@ -197,6 +197,12 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
         Route::delete('media/uploads/{uploadToken}', [AdminMediaController::class, 'destroy'])
             ->middleware('role:branch_manager,super_admin')
             ->name('media.uploads.destroy');
+        Route::apiResource('categories', AdminCategoryController::class)
+            ->only(['index', 'show'])
+            ->middleware('role:cashier,sales_staff,technician,branch_manager,super_admin');
+        Route::apiResource('categories', AdminCategoryController::class)
+            ->only(['store', 'update'])
+            ->middleware('role:super_admin');
         Route::middleware('role:branch_manager,super_admin')->group(function (): void {
             Route::get('dashboard', AdminDashboardController::class)->name('dashboard');
 
@@ -205,7 +211,6 @@ Route::prefix('v1')->name('api.v1.')->group(function (): void {
                 ->whereNumber('customer')->name('customers.show');
 
             Route::apiResource('products', AdminProductController::class)->except('destroy');
-            Route::apiResource('categories', AdminCategoryController::class)->except('destroy');
             Route::apiResource('brands', AdminBrandController::class)->except('destroy');
 
             Route::get('inventory', [AdminInventoryController::class, 'index'])->name('inventory.index');

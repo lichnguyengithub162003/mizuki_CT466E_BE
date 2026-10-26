@@ -103,7 +103,6 @@ test('guest and non admin roles cannot access new admin portal endpoints', funct
         '/api/v1/admin/dashboard',
         '/api/v1/admin/customers',
         '/api/v1/admin/products',
-        '/api/v1/admin/categories',
         '/api/v1/admin/brands',
         '/api/v1/admin/inventory',
         '/api/v1/admin/branches',

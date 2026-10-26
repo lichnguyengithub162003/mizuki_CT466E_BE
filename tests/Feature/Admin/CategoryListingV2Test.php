@@ -113,9 +113,9 @@ test('existing category mutation and cycle rules remain intact without deletion'
     $this->deleteJson("/api/v1/admin/categories/{$root->id}")->assertStatus(405);
 });
 
-test('category listing is available to branch managers and forbidden to other staff', function (): void {
+test('category listing is available to branch managers and other staff', function (): void {
     actingAsPortalUser($this, User::factory()->create(['role' => UserRole::BranchManager]));
     $this->getJson('/api/v1/admin/categories?mode=root')->assertOk();
     actingAsPortalUser($this, User::factory()->create(['role' => UserRole::Cashier]));
-    $this->getJson('/api/v1/admin/categories?mode=root')->assertForbidden();
+    $this->getJson('/api/v1/admin/categories?mode=root')->assertOk();
 });
