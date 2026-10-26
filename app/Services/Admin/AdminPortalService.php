@@ -14,6 +14,7 @@ use App\Services\BaseService;
 use App\Services\Media\MediaKeyGenerator;
 use App\Services\Media\MediaUrlResolver;
 use Closure;
+use Illuminate\Database\QueryException;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -93,7 +94,27 @@ class AdminPortalService extends BaseService
     /** @param array<string, mixed> $data */
     public function createCategory(User $actor, array $data): Category
     {
-        return $this->withCategoryHierarchyLock(fn (): Category => $this->saveCategoryWithMedia($actor, null, $data));
+        $existingIds = $data['attach_existing_child_ids'] ?? [];
+        $newChildren = $data['new_children'] ?? [];
+        unset($data['attach_existing_child_ids'], $data['new_children']);
+
+        try {
+            return $this->withCategoryHierarchyLock(function () use ($actor, $data, $existingIds, $newChildren): Category {
+                if ($existingIds === [] && $newChildren === []) {
+                    return $this->saveCategoryWithMedia($actor, null, $data);
+                }
+
+                return $this->createCategoryWithChildren($actor, $data, $existingIds, $newChildren);
+            });
+        } catch (QueryException $exception) {
+            $message = $exception->getMessage();
+            if (in_array((int) ($exception->errorInfo[1] ?? 0), [19, 1062], true)
+                && (str_contains($message, 'categories.slug') || str_contains($message, 'categories_slug_unique'))) {
+                throw ValidationException::withMessages(['slug' => ['Slug danh mục đã tồn tại.']]);
+            }
+
+            throw $exception;
+        }
     }
 
     /** @param array<string, mixed> $data */
@@ -397,6 +418,20 @@ class AdminPortalService extends BaseService
     /** @param array<string, mixed> $data */
     private function saveCategoryWithMedia(User $actor, ?Category $category, array $data): Category
     {
+        $data = $this->prepareCategoryData($actor, $category, $data);
+        $oldReferences = $category === null ? [] : $this->changedOldReferences($category, $data, [
+            'image_upload_token' => 'image_url',
+        ]);
+
+        return $this->mediaMutation(
+            fn (array &$promotions): Category => $this->persistCategoryWithinMutation($actor, $category, $data, $promotions),
+            $oldReferences,
+        );
+    }
+
+    /** @param array<string, mixed> $data @return array<string, mixed> */
+    private function prepareCategoryData(User $actor, ?Category $category, array $data): array
+    {
         if (array_key_exists('status', $data)) {
             $data['is_active'] = $data['status'] === Category::STATUS_PUBLISHED;
         } elseif (array_key_exists('is_active', $data)) {
@@ -408,28 +443,83 @@ class AdminPortalService extends BaseService
         $data = $this->normalizeCurrentReferences($category, $data, [
             'image_upload_token' => 'image_url',
         ]);
-        $oldReferences = $category === null ? [] : $this->changedOldReferences($category, $data, [
-            'image_upload_token' => 'image_url',
-        ]);
 
-        return $this->mediaMutation(function (array &$promotions) use ($actor, $category, $data): Category {
-            $this->assertCategoryHierarchyWithinThreeLevels($category, $data);
-            $baseData = $this->withoutTokenBackedFields($data, ['image_upload_token' => 'image_url']);
-            $saved = $this->repository->saveCategory($category, $baseData);
+        return $data;
+    }
 
-            if (! isset($data['image_upload_token'])) {
-                return $saved;
+    /** @param array<string, mixed> $data @param array<int, array{upload_id: int, final_key: string}> $promotions */
+    private function persistCategoryWithinMutation(User $actor, ?Category $category, array $data, array &$promotions): Category
+    {
+        $this->assertCategoryHierarchyWithinThreeLevels($category, $data);
+        $baseData = $this->withoutTokenBackedFields($data, ['image_upload_token' => 'image_url']);
+        $saved = $this->repository->saveCategory($category, $baseData);
+
+        if (! isset($data['image_upload_token'])) {
+            return $saved;
+        }
+
+        $key = $this->media->promoteOwned(
+            $actor,
+            (string) $data['image_upload_token'],
+            fn ($upload): string => $this->mediaKeys->category($saved->id, $upload->extension),
+            $promotions,
+        );
+
+        return $this->repository->saveCategory($saved, ['image_url' => $key]);
+    }
+
+    /** @param array<string, mixed> $data @param array<int, int> $existingIds @param array<int, array<string, mixed>> $newChildren */
+    private function createCategoryWithChildren(User $actor, array $data, array $existingIds, array $newChildren): Category
+    {
+        $data = $this->prepareCategoryData($actor, null, $data);
+        $newChildren = array_map(fn (array $child): array => $this->prepareCategoryData($actor, null, $child), $newChildren);
+        $tokens = array_filter(array_merge(
+            [$data['image_upload_token'] ?? null],
+            array_column($newChildren, 'image_upload_token'),
+        ));
+        if (count($tokens) !== count(array_unique($tokens))) {
+            throw ValidationException::withMessages(['new_children' => ['Mỗi ảnh chỉ được dùng cho một danh mục.']]);
+        }
+
+        return $this->mediaMutation(function (array &$promotions) use ($actor, $data, $existingIds, $newChildren): Category {
+            $existing = Category::query()->whereIn('id', $existingIds)->get()->keyBy('id');
+            if ($existing->count() !== count($existingIds)) {
+                throw ValidationException::withMessages(['attach_existing_child_ids' => ['Danh mục con không tồn tại hoặc đã bị xóa.']]);
+            }
+            foreach ($existing as $child) {
+                $ancestorId = $child->parent_id;
+                $visited = [$child->id => true];
+                while ($ancestorId !== null) {
+                    if (isset($visited[$ancestorId]) || $existing->has($ancestorId)) {
+                        throw ValidationException::withMessages(['attach_existing_child_ids' => ['Danh sách danh mục con có quan hệ cha con hoặc chu trình.']]);
+                    }
+                    $visited[$ancestorId] = true;
+                    $ancestor = Category::query()->find($ancestorId, ['id', 'parent_id']);
+                    if ($ancestor === null) {
+                        throw ValidationException::withMessages(['attach_existing_child_ids' => ['Quan hệ cha của danh mục con không hợp lệ.']]);
+                    }
+                    $ancestorId = $ancestor->parent_id;
+                }
             }
 
-            $key = $this->media->promoteOwned(
-                $actor,
-                (string) $data['image_upload_token'],
-                fn ($upload): string => $this->mediaKeys->category($saved->id, $upload->extension),
-                $promotions,
-            );
+            $created = $this->persistCategoryWithinMutation($actor, null, $data, $promotions);
+            foreach ($existing as $child) {
+                $this->assertCategoryHierarchyWithinThreeLevels($child, ['parent_id' => $created->id]);
+            }
+            foreach ($newChildren as $childData) {
+                $this->assertCategoryHierarchyWithinThreeLevels(null, ['parent_id' => $created->id]);
+            }
 
-            return $this->repository->saveCategory($saved, ['image_url' => $key]);
-        }, $oldReferences);
+            foreach ($existing as $child) {
+                $this->repository->saveCategory($child, ['parent_id' => $created->id]);
+            }
+            foreach ($newChildren as $childData) {
+                $childData['parent_id'] = $created->id;
+                $this->persistCategoryWithinMutation($actor, null, $childData, $promotions);
+            }
+
+            return $this->repository->category($created->id) ?? $created->refresh();
+        });
     }
 
     /** @param array<string, mixed> $data */
