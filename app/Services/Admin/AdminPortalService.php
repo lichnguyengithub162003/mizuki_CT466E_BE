@@ -18,6 +18,8 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Throwable;
 
 class AdminPortalService extends BaseService
@@ -91,27 +93,20 @@ class AdminPortalService extends BaseService
     /** @param array<string, mixed> $data */
     public function createCategory(User $actor, array $data): Category
     {
-        return $this->saveCategoryWithMedia($actor, null, $data);
+        return $this->withCategoryHierarchyLock(fn (): Category => $this->saveCategoryWithMedia($actor, null, $data));
     }
 
     /** @param array<string, mixed> $data */
     public function updateCategory(User $actor, int $id, array $data): ?Category
     {
-        $category = $this->repository->category($id);
-        if ($category === null) {
-            return null;
-        }
-        if (isset($data['parent_id'])) {
-            $parent = $this->repository->category((int) $data['parent_id']);
-            while ($parent !== null) {
-                if ($parent->id === $category->id) {
-                    throw ValidationException::withMessages(['parent_id' => ['Danh mục cha tạo thành quan hệ vòng']]);
-                }
-                $parent = $parent->parent_id === null ? null : $this->repository->category($parent->parent_id);
+        return $this->withCategoryHierarchyLock(function () use ($actor, $id, $data): ?Category {
+            $category = $this->repository->category($id);
+            if ($category === null) {
+                return null;
             }
-        }
 
-        return $this->saveCategoryWithMedia($actor, $category, $data);
+            return $this->saveCategoryWithMedia($actor, $category, $data);
+        });
     }
 
     /** @param array<string, mixed> $filters */
@@ -418,6 +413,7 @@ class AdminPortalService extends BaseService
         ]);
 
         return $this->mediaMutation(function (array &$promotions) use ($actor, $category, $data): Category {
+            $this->assertCategoryHierarchyWithinThreeLevels($category, $data);
             $baseData = $this->withoutTokenBackedFields($data, ['image_upload_token' => 'image_url']);
             $saved = $this->repository->saveCategory($category, $baseData);
 
@@ -434,6 +430,76 @@ class AdminPortalService extends BaseService
 
             return $this->repository->saveCategory($saved, ['image_url' => $key]);
         }, $oldReferences);
+    }
+
+    /** @param array<string, mixed> $data */
+    private function assertCategoryHierarchyWithinThreeLevels(?Category $category, array $data): void
+    {
+        $parentId = array_key_exists('parent_id', $data) ? $data['parent_id'] : $category?->parent_id;
+        $parentDepth = 0;
+        $seen = $category === null ? [] : [$category->id => true];
+
+        while ($parentId !== null) {
+            if (isset($seen[$parentId])) {
+                throw ValidationException::withMessages(['parent_id' => ['Danh mục cha tạo thành quan hệ vòng.']]);
+            }
+            $seen[$parentId] = true;
+            $parent = Category::query()->find((int) $parentId, ['id', 'parent_id']);
+            if ($parent === null) {
+                throw ValidationException::withMessages(['parent_id' => ['Danh mục cha không tồn tại hoặc đã bị xóa.']]);
+            }
+            $parentDepth++;
+            $parentId = $parent->parent_id;
+        }
+
+        $subtreeHeight = 1;
+        if ($category !== null) {
+            $frontier = [$category->id];
+            $visited = [$category->id => true];
+            while ($frontier !== [] && $parentDepth + $subtreeHeight <= 3) {
+                $children = Category::withTrashed()->whereIn('parent_id', $frontier)->get(['id']);
+                $frontier = [];
+                foreach ($children as $child) {
+                    if (isset($visited[$child->id])) {
+                        throw ValidationException::withMessages(['parent_id' => ['Danh mục cha tạo thành quan hệ vòng.']]);
+                    }
+                    $visited[$child->id] = true;
+                    $frontier[] = $child->id;
+                }
+                if ($frontier !== []) {
+                    $subtreeHeight++;
+                }
+            }
+        }
+
+        if ($parentDepth + $subtreeHeight > 3) {
+            throw ValidationException::withMessages(['parent_id' => ['Cây danh mục chỉ được tối đa 3 cấp.']]);
+        }
+    }
+
+    /** @template T @param Closure(): T $callback @return T */
+    private function withCategoryHierarchyLock(Closure $callback): mixed
+    {
+        $connection = DB::connection();
+        $driver = $connection->getDriverName();
+        if ($driver === 'sqlite' && app()->environment('testing')) {
+            return $callback();
+        }
+        if (! in_array($driver, ['mysql', 'mariadb'], true)) {
+            throw new RuntimeException('Category hierarchy locking is unsupported for this database driver.');
+        }
+
+        $lockName = 'category-hierarchy-'.sha1($connection->getDatabaseName());
+        $acquired = $connection->selectOne('SELECT GET_LOCK(?, 10) AS acquired', [$lockName], false);
+        if ((int) ($acquired->acquired ?? 0) !== 1) {
+            throw new ConflictHttpException('Không thể khóa cây danh mục để cập nhật. Vui lòng thử lại.');
+        }
+
+        try {
+            return $callback();
+        } finally {
+            $connection->selectOne('SELECT RELEASE_LOCK(?) AS released', [$lockName], false);
+        }
     }
 
     /** @param array<string, mixed> $data */
